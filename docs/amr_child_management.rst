@@ -9,8 +9,7 @@ Steps when a new AMR task is created
 3. The thread call check_current, notices a bits%init_nbor, and generates
    a new nbor list with ``tlist%init_nbor (link)``
 4. That is enough to download guard cell data
-   * Some cells may need to be interpolated from L-2 nbors, which must be there,
-     since otherwise the parent patch would not have had support
+   * Some cells may need to be interpolated from L-2 nbors, which must be there, since otherwise the parent patch would not have had support
    * This is quite OK, since the data are interpolated in any case
 5. The procedure also sets bits%init_nbor in the nbor tasks, but does not itself
    generate new nbor lists for its nbors
