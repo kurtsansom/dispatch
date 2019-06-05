@@ -4,17 +4,17 @@ Compiling
 To comile, go to the expriments/example directory, and use ``make infor``
 to see macro names and values that would be used in ``make``::
 
-   cd experiments/example
+   cd experiments/turbulence
    make info
 
-If the automatically selected compiler and options are OK, just do::
+If the automatically selected make options shown are OK, just do::
 
-   make
+   make -j
 
 If the compiler chosen by default is not appropriate, do instead, 
 for example::
 
-   make COMPILER=gfortran
+   make COMPILER=gfortran -j
 
 .. toctree::
    :maxdepth: 3
