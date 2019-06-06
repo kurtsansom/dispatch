@@ -32,7 +32,4 @@ locked out.
    locking_timeline
    locking_others
    locking_guard_zones
-   locking_measures
-   locking_nbor_lists
    locking_task_memory
-   locking_timings
