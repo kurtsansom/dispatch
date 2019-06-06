@@ -13,6 +13,7 @@ Then follows ``USE`` of the modules needed, and an ``implicit none`` (that appli
 also to all proceduress in the module)::
 
     USE io_mod
+    USE kinds_mod
     USE ...
     implicit none
     
