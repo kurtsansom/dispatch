@@ -1,46 +1,46 @@
-Modules
+Procedures
 --------------
 
-Modules should follow this template:::
-
-  !===============================================================================
-  !> Module description ...
-  !===============================================================================
-  MODULE some_mod
-    USE io_mod
-    USE ...
-    implicit none
-    private
-    type, public:: some_t
-    contains
-      procedure:: init
-      procedure:: update
-    end type
-    type(some_t):: some
-  CONTAINS
-  
-  !===============================================================================
-  !> Procedure description ...
-  !===============================================================================  
-  SUBROUTINE init (self)
-    class(some_t):: self
-    ...
-  END SUBROUTINE init 
+Procedures should follow this template:::
 
   !===============================================================================
   !> Procedure description ...
   !===============================================================================  
-  SUBROUTINE updatet (self)
+  SUBROUTINE updatet (self, aux)
     class(some_t):: self
+    integer:: aux
     !..............................................................................
-    integer, save:: itimer=0
+    integer:: local_variables, ...
+    real(KindScalarVar), dimension(:,:,:):: d, ...
+    !------------------------------------------------------------------------------
+    call trace%begin('some_t%update)
+    ...
+    !------------------------------------------------------------------------------
+    ! Comment block
+    !------------------------------------------------------------------------------
+    ...
+    var = expression                                    ! in-line comment
+    ...
+    call trace%end ()
+  END SUBROUTINE update
+
+or, if the procedures should be timed:::
+
+  !===============================================================================
+  !> Procedure description ...
+  !===============================================================================  
+  SUBROUTINE updatet (self, aux)
+    class(some_t):: self
+    integer:: aux
+    !..............................................................................
+    integer:: local_variables, ...
+    real(KindScalarVar), dimension(:,:,:):: d, ...
+    integer, save:: itimer
     !------------------------------------------------------------------------------
     call trace%begin('some_t%update, itimer=itimer)
     ...
     call trace%end (itimer)
   END SUBROUTINE update
-
-  END MODULE some_mod
 
 
 .. toctree::
