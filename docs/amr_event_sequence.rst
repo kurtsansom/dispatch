@@ -26,6 +26,7 @@ Refining
 ........
 
 * in make_child_patch()
+
   * create the new patch
   * add its parent patch as the only nbor, and prolong
   * set bits%init_nbors
@@ -34,6 +35,7 @@ Refining
   * switch perspective to the first time it enters check_current()
 
 * in check_current()
+
   * detect bits%init_nbors
   * clear bits%init_nbors
   * generate a new nbor list
@@ -41,10 +43,14 @@ Refining
   * continue the usual business
 
 The weak points here are:
+
 * how to trigger check_nbors(), and get nbors into the ready queue
+
   * this will be ok, since they will get "ready" w/o knowing about the new task
   * it will happen by the normal check_nbors(), done after updates
+
 * how to prevent the bits%init_nbors from spreading beyond the first nbors
+
   * just look at the task%istep, and do the %set only for tasks with istep<=1
 
 * in task_mesg_t%unpack for virtual tasks
@@ -56,12 +62,14 @@ Derefining
 ...........
 
 * in ``remove_patch()``
+
   * remove the task from the task list (it will remain in garbage bin while needed)
   * use the existing nbor list to set bits%init_nbors on nbors
   * now that the task is removed, check if nbors have become ready
   * move the task to the garbage bin
 
 * in ``task_mesg_t%npack()``
+
   * detect bits%init_nbors, inside detection of suicide note
   * set bits%init_nbors on the nbors (under lock!), but only for ``task%step <= 1``
   * continue the usual business
