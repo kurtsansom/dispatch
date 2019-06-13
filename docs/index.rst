@@ -11,6 +11,7 @@ DISPATCH Documentation
    :maxdepth: 2
    :caption: Table of contents:
 
+   overview
    user_guide
    technical
    doxygen

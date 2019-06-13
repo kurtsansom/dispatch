@@ -2,7 +2,7 @@ Procedures
 --------------
 
 Procedures should follow this template, with a dotted line separating argument
-declarationss from local variable declarations, and with dashed lines separating code
+declarations from local variable declarations, and with dashed lines separating code
 and comment blocks:::
 
   !===============================================================================
