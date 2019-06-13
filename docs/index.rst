@@ -15,5 +15,4 @@ DISPATCH Documentation
    user_guide
    technical
    doxygen
-   wiki
    google
