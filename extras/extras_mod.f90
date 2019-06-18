@@ -104,13 +104,13 @@ SUBROUTINE init (self)
   class(extras_t):: self
   !.............................................................................
   call trace%begin ('extras_t%init')
-  !call self%forces%init (self)                                  ! forces
+  !call self%forces%init (self%link)                             ! forces
   !-----------------------------------------------------------------------------
   ! Allocate a trace_particles data type, connect a pointer, and initialize
   !-----------------------------------------------------------------------------
   !allocate (self%trace_particles)                               ! tracep
   !self%connect%trace_particles => self%trace_particles          ! tracep
-  !call self%trace_particles%add (self%link%task)                ! tracep
+  !call self%trace_particles%add (self%link)                     ! tracep
   !call self%spitzer%init(self%link)                             ! spitzer
   !call self%gravity%init(self%link)                             ! gravity
   !call sink_patch%init                                          ! sinkp
@@ -192,7 +192,7 @@ INTEGER function check_refine (self, patch)
 END FUNCTION check_refine
 
 !===============================================================================
-!> Cast a generic task_t to patch_t
+!> Cast a generic task_t to extras_t
 !===============================================================================
 FUNCTION cast2extras (task) RESULT(extras)
   USE task_mod

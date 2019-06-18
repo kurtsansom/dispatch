@@ -137,7 +137,6 @@ SUBROUTINE single_solenoidal (self, m, ff, idx)
       end do
     end do
   end do
-  !print *, 'IIII', idx%d, minval(ff(:,:,:,idx%d)), maxval(ff(:,:,:,idx%d))
   call energy (self, m, idx, ff)
   end associate
   call trace_end (itimer)

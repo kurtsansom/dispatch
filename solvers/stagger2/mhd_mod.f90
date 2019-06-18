@@ -93,11 +93,9 @@ SUBROUTINE init (self)
   ! called again, from extras_t%init, when gamma is known and can be passed on.
   !-----------------------------------------------------------------------------
   call self%idx%init (5, self%mhd)
-  print *,'mhd, nv =', self%mhd, self%nv
   self%initial%mhd = self%mhd
   call self%initial%init (self%kind)
   self%mhd = self%initial%mhd
-  print *,'mhd, nv =', self%mhd, self%nv
   if (self%mhd) then
     self%kind = 'stagger2_mhd_patch'
   else
@@ -113,7 +111,6 @@ SUBROUTINE init (self)
       self%nv = 5
     end if
   end if
-  print *,'mhd, nv =', self%mhd, self%nv
   !-----------------------------------------------------------------------------
   ! Allocate memory and mesh, etc
   !-----------------------------------------------------------------------------

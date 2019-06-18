@@ -71,9 +71,6 @@ SUBROUTINE init (self, name)
   rewind (io%input); read(io%input, dispatcher0_params, iostat=iostat)
   if (io%master) then
     if (io%master) write (*, dispatcher0_params)
-    if (iostat /= 0) then
-      call io%namelist_warning ('dispatcher0_params')
-    end if
   end if
   call self%lock%init ('disp')
   call self%lock%append
@@ -407,9 +404,11 @@ SUBROUTINE update (self, task_list, test)
       !-------------------------------------------------------------------------
       ! Cost counter for AMR
       !-------------------------------------------------------------------------
-      !$omp atomic
-      timer%levelcost(task%level) = &
-      timer%levelcost(task%level) + (wallclock() - levelstart)
+      if (refine%on) then
+        !$omp atomic
+        timer%levelcost(task%level) = &
+        timer%levelcost(task%level) + (wallclock() - levelstart)
+      end if
     end if
   else
     if (detailed_timer) then

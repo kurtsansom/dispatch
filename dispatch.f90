@@ -2,18 +2,15 @@
 !> Generic DISPATCH main program for Cartesian meshes
 !===============================================================================
 PROGRAM dispatch
-  USE io_unit_mod
   USE setup_mod
-  USE cartesian_mod
   USE dispatcher_mod
-  type (cartesian_t):: cartesian
+  USE cartesian_mod
+  type (cartesian_t):: cartesian                ! Use Cartesian patch arrangement
   !.............................................................................
   call setup%init                               ! Standard setup (MPI, I/O, scaling, ...)
-  call dispatcher%init                          ! Set dispatcher method
-  call cartesian%init                           ! Initialize the patch list and patches
-  call dispatcher%execute (cartesian%task_list) ! call dispatcher
-  write (io_unit%mpi,*) 'calling setup%end'
-  flush (io_unit%mpi)
-  call setup%end
+  call dispatcher%init                          ! Initialize the dispatcher
+  call cartesian%init                           ! Initialize the task list
+  call dispatcher%execute (cartesian%task_list) ! Run dispatcher on the task_list
+  call setup%end                                ! End setup
 !===============================================================================
 END PROGRAM dispatch

@@ -12,14 +12,15 @@ MODULE force_mod
   real(8), parameter:: pi2=8.0*atan(1.0)
   type, public:: force_t
     integer:: id
-    real(8):: t_save
+    real(8):: t_save=0d0
     real:: phase(3), a(3)
     procedure(single_solenoidal), pointer:: selected=>null()
     character(len=64):: solver
     type(random_t):: random
   contains
-    procedure init
-    procedure single_solenoidal
+    procedure:: init
+    procedure:: dealloc
+    procedure:: single_solenoidal
   end type
   integer, save:: seed=22
 CONTAINS
@@ -61,6 +62,13 @@ SUBROUTINE init (self, solver, id, mesh)
 END SUBROUTINE init
 
 !===============================================================================
+!> Empty procedure; nothing to deallocate
+!===============================================================================
+SUBROUTINE dealloc (self)
+  class(force_t):: self
+END SUBROUTINE dealloc
+
+!===============================================================================
 !> Forcing on a single 3-D wavenumber, changing amplitude and phase periodically
 !> Note that random%ran3() returns 3 numbers in the range (-1.0,1.0)
 !===============================================================================
@@ -93,7 +101,6 @@ FUNCTION single_solenoidal (self, time, d, p, Ux, Uy, Uz, m) RESULT (ff)
     self%t_save = self%t_save + t_turn
     self%a = a0*2./3.*(1.0+0.1*self%random%ran3())/t_turn
     self%phase = pi2*0.5*self%random%ran3()
-    if (self%id==1) print *,'new force at', real(time), self%a, real(self%phase/pi2)
   end if
   associate (r1=>m(1)%r, r2=>m(2)%r, r3=>m(3)%r)
   do iz=m(3)%lb,m(3)%ub

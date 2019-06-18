@@ -129,11 +129,16 @@ SUBROUTINE init_levels (self)
     link => link%next
     end associate
   end do
-  if (refine%levelmax > refine%levelmin) &
-    download%check_filled = .true.
   write (io%output,*) &
     'task_list_t%init_levels: levelmin,max =', refine%levelmin, refine%levelmax
-  call self%init_levelstats
+  !-----------------------------------------------------------------------------
+  ! Enforce checking of guard zone fill when doing AMR
+  !-----------------------------------------------------------------------------
+  if (refine%on) then
+    if (refine%levelmax > refine%levelmin) &
+      download%check_filled = .true.
+    call self%init_levelstats
+  end if
   call trace%end
 END SUBROUTINE init_levels
 
@@ -201,6 +206,12 @@ SUBROUTINE startup (self)
   call mpi%barrier ('self%execute')
   call tic (time=sec)
   call timer%print()
+  !-----------------------------------------------------------------------------
+  ! IMPORTANT:  The globally available io%ntask must reflect the total number
+  ! of active tasks on the rank (io%nwrite is set in data_io_mod)
+  !-----------------------------------------------------------------------------
+  !$omp atomic write
+  io%ntask  = self%na                                        ! Authoritative !
   self%n_tasks = self%na
   call trace%end (itimer)
 END SUBROUTINE startup
@@ -317,12 +328,6 @@ SUBROUTINE update (self, head, test, was_refined, was_derefined)
     call validate%check (head, task%mem(:,:,:,task%idx%d,task%it,1), 'before update')
     end select
     !---------------------------------------------------------------------------
-    ! IMPORTANT:  The globally available io%ntask must reflect the total number
-    ! of active tasks on the rank (io%nwrite is set in data_io_mod)
-    !---------------------------------------------------------------------------
-    !$omp atomic write
-    io%ntask  = self%na                                        ! Authoritative !
-    !---------------------------------------------------------------------------
     call task%update                                  ! update the task
     if (self%verbose > 0) then
       associate (unit => merge (io_unit%log, io_unit%mpi, self%verbose > 1))
@@ -402,6 +407,10 @@ SUBROUTINE update (self, head, test, was_refined, was_derefined)
     ! Use bits%frozen to make sure the task only decrements from self%na once
     !---------------------------------------------------------------------------
     if (task%is_clear (bits%frozen)) then
+      select type (task)
+      class is (experiment_t)
+      call task%output
+      end select
       call task%set (bits%frozen)
       call self%count_status ('has_finished')         ! TEST
       if (io%verbose > 0) then
