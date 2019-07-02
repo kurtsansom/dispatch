@@ -12,6 +12,7 @@ Technical Details
    hierarchy
    jobcontrol
    locking
+   rt
    sinkparticles
    tasklists
    timeslots
