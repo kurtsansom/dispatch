@@ -1,4 +1,4 @@
-Task memory locking for guard zones
+Memory locking for guard zones
 -----------------------------------
 
 When ``omp_lock%tasks`` is set, external read access to task memory is locked

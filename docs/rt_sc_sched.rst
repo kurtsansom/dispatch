@@ -14,7 +14,7 @@ Phase 1: MHD updates are done, until ``mhd%time >= mhd%rt_next``
   ! ------------- MHD2 -------------+ |
   ! --------------RT2  ---------------+
 
-Phase 2: EOS2 calculations, at ``time = mhd%rt_next``, setting eos_time to this
+Phase 2: EOS2 calculations, at ``time = mhd%rt_next``, setting ``eos_time`` to this
 time.  Here, EOS2 has advanced, and with MHD2 time ahead, only lack of upstream
 RT prevents RT2 update::
 
@@ -26,7 +26,7 @@ RT prevents RT2 update::
   ! --------------EOS2 ---------------+
   ! --------------RT2  ---------------+
 
-Phase 3: EOS1 calculations, at ``time = mhd%rt_next``, setting eos_time to this
+Phase 3: EOS1 calculations, at ``time = mhd%rt_next``, setting ``eos_time`` to this
 time.  Here, EOS2 has advanced, and with MHD2 time ahead, only lack of upstream
 RT prevents RT2 update::
 

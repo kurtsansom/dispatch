@@ -11,9 +11,9 @@ Technical Details
    garbage_collection
    hierarchy
    jobcontrol
-   locking
    rt
    sinkparticles
    tasklists
+   tasklocking
    timeslots
 

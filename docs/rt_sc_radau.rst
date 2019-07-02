@@ -7,7 +7,7 @@ over :math:`\mu =` the cosine of the inclination relative to the normal, and the
 point :math:`\mu=1` is always included.
 
 This has the advantage that no :math:`\phi`-integration (integration over azimuth)
-is needed for that inclination, which also generallt carries the largest
+is needed for that inclination, which also generally carries the largest
 specific radiation intensity.
 
 .. toctree::
