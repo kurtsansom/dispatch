@@ -4,10 +4,13 @@ Short characteristics
 Short characteristics radiative transfer solvers typically solve the radiative
 transfer equations across only a single cell (or in some cases even a fraction
 of a cell) at a time.  In three dimensions one can nevertheless achieve excellent
-performance, by parallelizing over perpendicular directions -- effectively solver
+performance, by parallelizing over perpendicular directions -- effectively solving
 for the radiation over parallel planes, progressing from one plane to the next,
 starting from a boundary where values are known, either from physical boundary
 conditions, or from boundary values taken from an adjacent ("up-stream") domain.
+
+Because one is looping over two redundant directions, it is possible to significantly
+reduce the cost, since it allows the compiler to use loop vectorization.
 
 The ``solvers/rt/short_characteristics/`` directory is currently empty, but this
 RT solver will soon be released, and the directory will then contain the following
