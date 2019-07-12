@@ -11,6 +11,7 @@ Technical Details
    garbage_collection
    hierarchy
    jobcontrol
+   maintenance/index
    rt
    sinkparticles
    tasklists
