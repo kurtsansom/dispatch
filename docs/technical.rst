@@ -6,12 +6,12 @@ Technical Details
    :maxdepth: 4
 
    coding/index
-   amr
+   amr/index
    forces
-   garbage_collection
-   hierarchy
+   git/index
    jobcontrol
    maintenance/index
+   hierarchy
    rt
    sinkparticles
    tasklists

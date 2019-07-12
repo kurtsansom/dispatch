@@ -16,5 +16,6 @@ from the commits that would otherwise be needed.
    :maxdepth: 3
 
    4public
+   update
    pull
    push

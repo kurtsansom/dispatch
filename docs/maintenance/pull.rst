@@ -20,8 +20,8 @@ To pull in updates from the development repository do:::
    git push                         # push to private repository
 
 In the amended commit message you should alert people about this new update on
-the `beta` branch, and invite them to try it out.   Only after confirmation that
-there is no problem should the commit be cherry-picked over to the `master`
+the ```beta``` branch, and invite them to try it out.   Only after confirmation that
+there is no problem should the commit be cherry-picked over to the ```master```
 branch on the public repository.
 
 .. toctree::
