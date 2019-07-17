@@ -12,6 +12,7 @@ Technical Details
    jobcontrol
    maintenance/index
    hierarchy
+   python/technical/index
    rt
    sinkparticles
    tasklists

@@ -19,3 +19,6 @@ offers, do::
 
   dir(s)
 
+.. toctree::
+   :maxdepth: 3
+
