@@ -19,6 +19,7 @@ The modules are self-documented, cf:
    dispatch_select
    dispatch_graphics
    notebooks
+   aux_data
 
 The source code may be found in ``utilities/python/dispatch/``, and is
 also available via the :ref:`auto-generated documentation <doxy>` (the
