@@ -2,7 +2,7 @@ Modules
 --------------
 
 Modules should start with a description, with comment lines ``!>`` being 
-automatically interpreted by ``doxygen`` at ``readthedocs.org``:::
+automatically interpreted by ``doxygen`` at ``readthedocs.org``::
 
   !===============================================================================
   !> Module description ...
@@ -22,30 +22,35 @@ exception of the data type definition, and a static instance of the data type, t
 purpose of which is to provide access to static parameters, set for example from a
 namelist, and given as default values to instances of the data type:::
 
-    private
-    type, public:: some_t
-      integer:: verbose=0
-    contains
-      procedure:: init
-      procedure:: update
-    end type
-    type(some_t), public:: some
-  CONTAINS
-
-Procedures should start with a procedure description, to be picked up by ``doxygen``:::
-  
-  !===============================================================================
-  !> Procedure description ...
-  !===============================================================================  
-  SUBROUTINE update (self)
-    class(some_t):: self
-    ...
-  END SUBROUTINE update
-
-  END MODULE some_mod
-
+  !  private
+  !  type, public:: some_t
+  !    integer:: verbose=0
+  !  contains
+  !    procedure:: init
+  !    procedure:: update
+  !  end type
+  !  type(some_t), public:: some
+  !CONTAINS
+  !
+  !!===============================================================================
+  !!> Initialization
+  !!===============================================================================  
+  !SUBROUTINE init (self)
+  !  class(some_t):: self
+  !  ...
+  !END SUBROUTINE init
+  ! 
+  !!===============================================================================
+  !!> Update
+  !!===============================================================================  
+  !SUBROUTINE update (self)
+  !  class(some_t):: self
+  !  ...
+  !END SUBROUTINE update
+  !...
+  !END MODULE some_mod
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 
 

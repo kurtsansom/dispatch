@@ -7,13 +7,14 @@ Technical Details
 
    coding/index
    amr/index
+   compilation/index
    forces
    git/index
    jobcontrol
    maintenance/index
    hierarchy
    python/technical/index
-   rt
+   rt/index
    sinkparticles
    tasklists
    tasklocking

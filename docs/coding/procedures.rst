@@ -6,7 +6,7 @@ declarations from local variable declarations, and with dashed lines separating 
 and comment blocks:::
 
   !===============================================================================
-  !> Procedure description ...
+  !> Procedure description (picked up by doxygen)
   !===============================================================================  
   SUBROUTINE updatet (self, aux)
     class(some_t):: self

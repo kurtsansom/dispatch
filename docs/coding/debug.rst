@@ -25,5 +25,5 @@ so they are recoverable via a simple ``git revert``, w/o introducing outher chan
 
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 
