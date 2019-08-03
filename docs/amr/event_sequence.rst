@@ -1,4 +1,4 @@
-AMR event sequences
+Event sequences
 -------------------
 
 If threads only ever change the nbor list of their active task, and leave changing
@@ -80,6 +80,6 @@ and can be handled inside ``list_t%init_nbors``
 
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 
 

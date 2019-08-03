@@ -1,5 +1,5 @@
-AMR MPI I/O
-------------
+MPI I/O for AMR
+----------------
 
 Currently, only the ``method='legacy'`` file format works with AMR, and then only
 for writing -- restarts have not been implemented yet.
@@ -47,5 +47,5 @@ before, but should achieve that whenever possible.  After or while reading in th
 metadata, each rank reads in as many as its share of the load
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 
