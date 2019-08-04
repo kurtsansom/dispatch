@@ -14,9 +14,9 @@ take these actions:
 
 * Increment the task total and task level counts on the rank
 
-* Call check_nbors() on the new task link, which then (as always) runs check_ready()
-  on all the nbors first, and then runs check_ready() on the task link itself
-  (unless it is a virtual task).
+* Call ``check_nbors()`` on the new task link, which then (as always) runs 
+  ``check_ready()`` on all the nbors first, and then runs check_ready() on the 
+  task link itself (unless it is a virtual task).
 
 These actions are taken in a procedure ``list_t%add_new_task()`` that is called
 from both the AMR procedure that created new tasks, and from the 

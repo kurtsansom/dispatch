@@ -8,6 +8,7 @@ DISPATCH Documentation
 ======================
 
 .. toctree::
+   :numbered:
    :maxdepth: 2
    :caption: Table of contents:
 
