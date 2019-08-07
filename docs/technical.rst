@@ -12,6 +12,7 @@ Technical Details
    git/index
    jobcontrol
    maintenance/index
+   mpi/index
    hierarchy
    python/technical/index
    rt/index
