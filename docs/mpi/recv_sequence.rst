@@ -3,7 +3,7 @@ Receiving order
 
 A rank sends packages to several nbor ranks, so each rank also receives packages
 from several nbor ranks.  It is important that these packages are received in
-the same order as they were sent from the sender rank, so the MPI protocol 
+the same order as they were sent from the sender rank, so the MPI protocol
 ensures that.
 
 Each package sent from a rank to another rank contains a ``tag``, which encodes

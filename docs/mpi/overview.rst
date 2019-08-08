@@ -3,7 +3,7 @@ Overview
 
 In order not ot be limited to use the initially existing task numbers when
 sending MPI messages, the most general recieving method uses ``MPI_IMPROBE``
-to learn which task a message is aimed for, the size of the message, and 
+to learn which task a message is aimed for, the size of the message, and
 its sequence number.  After receiving a reply from ``MPI_IMPROBE``, a buffer
 is allocated, a non-blocking ```MPI_IMRECV`` is issued, and the message is
 added to a ``recv_list`` of outstanding receive messages.  The messages in
