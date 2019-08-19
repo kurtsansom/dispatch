@@ -124,9 +124,7 @@ SUBROUTINE init (self)
   !-----------------------------------------------------------------------------
   ! Allocate memory and mesh, etc
   !-----------------------------------------------------------------------------
-  print *,'mhd, nv =', self%mhd, self%nv
   call self%idx%init (5, self%mhd)
-  print *,'mhd, nv =', self%mhd, self%nv, self%idx%d, self%idx%bx
   call self%gpatch_t%init
   self%type = 'mhd_t'
   do i=1,3
@@ -505,9 +503,7 @@ SUBROUTINE update (self)
     self%mem(:,:,:,self%idx%e,self%it,1) = &
     self%mem(:,:,:,self%idx%d,self%it,1)*self%csound**2
   end if
-  if (self%mhd) then
-    call self%divB_clean
-  end if
+  if (self%mhd) call self%divB_clean
   call self%pde
   call self%courant_condition
   if (verbose>2) &
