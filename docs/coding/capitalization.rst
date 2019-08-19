@@ -19,5 +19,5 @@ serves the purpose of allowing editor search patterns such as ``'USE xxx'``,
 
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 

@@ -1,4 +1,4 @@
-AMR task handling
+Task handling
 -----------------
 
 A new AMR task:
@@ -46,6 +46,7 @@ Using this strategy, we should be able to avoid calling ``init_nbor_nbors()``
 after creating a new AMR task, and we should also be able to avoid calling
 ``check_nbor_nbors()``, since the nbors will take care of their own.
 
+
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 

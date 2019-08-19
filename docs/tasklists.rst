@@ -36,13 +36,13 @@ when a source task is ahead of a target task.   This requires the functions that
 call is_ahead_of are at a level where they are aware of experiment_t and all
 sub-levels.::
 
-|    dispatcher_t                                                  dispatcherX_mod
-|      task_list_t check_ready                                     task_list_mod
-|        experiment_t is_ahead_of refine                           experiment_mod
-|          solver_t                                                solver_mod
-|            gpatch_t                                              gpatch_mod
-|              patch_t                                             patch_mod
-|                task_t                                            task_mod
+      dispatcher_t                                                  dispatcherX_mod
+        task_list_t check_ready                                     task_list_mod
+          experiment_t is_ahead_of refine                           experiment_mod
+            solver_t                                                solver_mod
+              gpatch_t                                              gpatch_mod
+                patch_t                                             patch_mod
+                  task_t                                            task_mod
 
 For task refinement, a similar desire exists.  The procedure that defines if a 
 task should be "refined" (whatever that means) should be aware of all levels of
@@ -64,19 +64,19 @@ But if the refine_mo should be able to manipulate the task list with dispather0,
 it needs to know about task list, which creates a Catch 22, since it is also 
 called from inside task_list_mod.::
 
-|    dispatcher_t                                                  dispatcherX_mod
-|    task_list_t                                                   task_list_mod
-|    list_t                             check_ready                list_mod
-|                   experiment_t                                   experiment_mod
-|                   rt_solver_t                                    rt_solver_mod
-|                   rt_t               (is_ahead_of)               rt_mod
-|    refine_t ---------------------------------------------------- refine_mod
-|                   solver_t              |                        solver_mod
-|                   mhd_t                 |                        mhd_mod
-|                   gpatch_t              |                        gpatch_mod
-|                   patch_t               |                        patch_mod
-|    link_t                               |                        link_mod
-|                   task_t              is_ahead_of                task_mod
+      dispatcher_t                                                  dispatcherX_mod
+      task_list_t                                                   task_list_mod
+      list_t                             check_ready                list_mod
+                     experiment_t                                   experiment_mod
+                     rt_solver_t                                    rt_solver_mod
+                     rt_t               (is_ahead_of)               rt_mod
+      refine_t ---------------------------------------------------- refine_mod
+                     solver_t              |                        solver_mod
+                     mhd_t                 |                        mhd_mod
+                     gpatch_t              |                        gpatch_mod
+                     patch_t               |                        patch_mod
+      link_t                               |                        link_mod
+                     task_t              is_ahead_of                task_mod
 
 .. toctree::
    :maxdepth: 3

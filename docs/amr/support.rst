@@ -1,5 +1,5 @@
-AMR support
-===========
+Level support
+---------------
 
 The AMR actions on a task -- refine and derefine -- should only be
 done by the thread that is about to update the task, since any other
@@ -39,7 +39,8 @@ task itself, and then generates new nbor lists also for the nbors of the
 task, since both sides of the nbor-nbor relation need to have consistent
 nbor lists.
 
+
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 
  

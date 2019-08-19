@@ -14,13 +14,13 @@ and work with private working copies of your fork, on laptops, as well as on clu
 You may want (other) studentents to do the same or, alternatively, make a fork of your fork,
 to get an arrangement such as this one:::
 
-   !       private_version
-   !            |         \
-   !     public_version    private_forks
-   !      /     |   |  \
-   !   Ralph   Rolf |  Others...
-   !     |          |
-   !  student   student
+         private_version
+              |         \
+       public_version    private_forks
+        /     |   |  \
+     Ralph   Rolf |  Others...
+       |          |
+    student   student
 
 
 .. toctree::

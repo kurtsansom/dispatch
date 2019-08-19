@@ -1,5 +1,5 @@
-AMR child management
---------------------
+Child task management
+----------------------
 
 Steps when a new AMR task is created
 
@@ -31,6 +31,7 @@ Using this strategy, we are able to avoid calling ``init_nbor_nbors()`` after
 creating a new AMR task, and we are also able to avoid calling ``check_nbor_nbors()``,
 since the nbors will take care of their own ``init_nbors()``.
 
+
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 

@@ -3,16 +3,19 @@ Technical Details
 =================
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 1
 
    coding/index
    amr/index
+   compilation/index
    forces
    git/index
    jobcontrol
    maintenance/index
+   mpi/index
    hierarchy
-   rt
+   python/technical/index
+   rt/index
    sinkparticles
    tasklists
    tasklocking

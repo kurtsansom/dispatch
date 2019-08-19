@@ -1,5 +1,5 @@
-AMR save/restore
-=======================================
+Snapshot save / restore
+------------------------
 
 A saved AMR snapshot must contain -- effectively -- a list of tasks to read in,
 initialize, and fill with values from the snapshot.
@@ -50,7 +50,8 @@ all be extensions of patch_t:::
                /    |    \
        patch1_t     |     patch2_t
 
+
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 
  

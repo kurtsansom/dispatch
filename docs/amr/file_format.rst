@@ -1,9 +1,8 @@
-AMR MPI I/O
-------------
+MPI I/O for AMR
+----------------
 
 Currently, only the ``method='legacy'`` file format works with AMR, and then only
 for writing -- restarts have not been implemented yet.
-
 A new ``method='snapshot'`` will be implemented for efficient saving of AMR
 data in a single ``data/run/NNNNN/snapshot.dat`` file per snapshot.
 
@@ -14,17 +13,7 @@ number of patches at the time of writing. Then such blocks from all ranks are
 arranged with each variable filling a contiguous piece in the snapshot.dat file;
 viz::
 
-  r1p1
-  ...
-  r1pN
-  r2P1
-  ...
-  r2pN
-    .
-    .
-    .
-  rMp1
-  rMpN
+  r1p1...r1pN, r2P1...r2pN, . . .,rMp1...rMpN
   
 where ``M`` is the number of ranks and ``N`` is the number of patches per ranks
 (which in general is allowed to differ from patch to patch).  A metadata file
@@ -35,10 +24,8 @@ task number:::
    1    0    0   1    xx
    .      
    N    0    0 
-   1    1
    .    .
    N    M    0
-   .    .    .
    .    .    .
    N    M    V
 
@@ -47,5 +34,5 @@ before, but should achieve that whenever possible.  After or while reading in th
 metadata, each rank reads in as many as its share of the load
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
 

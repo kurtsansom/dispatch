@@ -14,3 +14,7 @@ reaches zero.
 There are only three procedure that create or delete nbor lists: ``copy_nbor_list``,
 ``sort_nbors_by_level``, and ``remove_nbor_list``.   These maintain the ``n_neeeded``
 count, using atomic increments and decrements.
+
+.. toctree::
+   :maxdepth: 4
+

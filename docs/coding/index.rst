@@ -6,6 +6,7 @@ Coding standard
 
    modules
    procedures
-   lines
    capitalization
+   code
+   comments
    debug
