@@ -796,6 +796,7 @@ FUNCTION check_derefine_support (self, tlist, link, check_only) RESULT (refine)
   integer:: n_nbor1, n_nbor2, n_added
   integer, save:: itimer=0
   !-----------------------------------------------------------------------------
+  refine = -1
   if (link%task%level == self%levelmin) &
     return
   call trace%begin('refine_t%check_derefine_support', itimer=itimer)
