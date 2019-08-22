@@ -20,8 +20,8 @@ DISPATCH
 .. toctree::
    :maxdepth: 3
 
-   publications
    presentations
+   publications
 
 
 DISPATCH is licensed under a BSD 3-Clause license:

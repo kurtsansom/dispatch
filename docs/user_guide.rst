@@ -9,3 +9,4 @@ User Guide
    compile
    run
    data
+   howto/index
