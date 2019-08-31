@@ -20,6 +20,7 @@ Adaptive Mesh Refinement
    file_format
    snapshot_save
    snapshot_restore
+   pdf_io
    support
    flux_consistency/index
  
