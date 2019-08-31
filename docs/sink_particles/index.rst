@@ -1,22 +1,23 @@
 Sink-particles
 ==============
 
-A sinkparticle is represented by a task that is primarily an extension of a
-gpatch_t data type, with a patch%mem that has a limited extend (~8 cell radius).
+A sinkparticle is represented by a task data type (``sink_patch_t``) 
+that is primarily an extension of a ``gpatch_t`` data type, with a ``patch%mem``
+that has a limited extent (~8 cell radius).
 Sink particles are formed at the same resolution level as the patch they are
 formed in.
 
 From the point of view of the dispatcher task_list, the task appears as a
 normal patch, but with special case handling that causes all interior 
 values to be downloaded from and to its normal MHD patch nbors.
-The particle aspect of a sinkparticle is kept in a partcle_list_t data
+The particle aspect of a sinkparticle is kept in a ``partcle_list_t`` data
 type, which stores several positions in time for the particle, making it
 possible to interpolate its position to any given time, when computing
 interactions (forces).
 
 The sink particle position is updated by an N-body solver, which gets
 access to the other sink particle histories by being an extension on top of
-the task_list_t data type.
+the ``task_list_t`` data type.
 
 The particle position update method is always one particle at a
 time, since particle updates use variable time steps, which differ from

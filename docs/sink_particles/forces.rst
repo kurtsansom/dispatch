@@ -29,7 +29,7 @@ The forces that involve sink particles are of two types:
    (``lagrange_mod.f90``).
 
    To quickly find the right ``patch_force_t`` instance, given the particle
-   and MHD patch IDs, we use a hash table with the ``(particle%id,patch%id)``
+   and MHD patch IDs, we use a hash table with ``(particle%id,patch%id)``
    as a 2-dimensional key, and an anonymous pointer with the address to
    the ``patch_force_t`` data type as value. 
 

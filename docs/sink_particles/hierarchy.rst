@@ -4,9 +4,9 @@ Data type hierarchy
 The ``sink_patch_t`` data type is an extenstion of the standard ``gpatch_t`` data
 type, with access to the task list. 
 
-The ``particle_solver_t``:  An extension of the ``particle_list_t`` data type, which
-is a task_t extension that holds particle positions at several times.
-The ``particle_solver_t`` is kept as an attribute of sink_patch_t data type,
+The ``particle_solver_t`` is an extension of the ``particle_list_t`` data type, which
+is a `` task_t``  extension that holds particle positions at several times.
+The ``particle_solver_t`` is kept as an attribute of `` sink_patch_t`` data type,
 so the data type hierarchy looks like this:
 ::
 

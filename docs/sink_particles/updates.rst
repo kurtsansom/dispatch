@@ -1,11 +1,12 @@
 Task update sequence
 ---------------------
 
-When a sink particle task (data type `` sink_patch_t``) reaches the head of
+When a sink particle task (data type ``sink_patch_t``) reaches the head of
 the ready queue and is taken by one of the threads, its call to the normal
 ``task_list_t%update()`` procedure results in calls to these procedures
 (indentation indicates call level, and the name of the file containing
-the procedure is obtained with the substituttion ``_t`` -> ``_mod.f90``):::
+the procedure is obtained with the substituttion ``_t`` -> ``_mod.f90``):
+::
 
    experiment_t%dnload                                          ! generic download call
      sink_task_t%dnload                                         ! sink patch download
