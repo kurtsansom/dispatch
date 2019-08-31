@@ -21,4 +21,5 @@ Adaptive Mesh Refinement
    snapshot_save
    snapshot_restore
    support
+   flux_consistency/index
  

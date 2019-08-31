@@ -16,7 +16,7 @@ Technical Details
    hierarchy
    python/technical/index
    rt/index
-   sinkparticles
+   sink_particles/index
    tasklists
    tasklocking
    timeslots
