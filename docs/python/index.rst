@@ -1,7 +1,7 @@
 Python support
 ==============
 
-To load Python modulesi, add the DISPATCH directory ``utilities/python/``
+To load Python modulesi, add the full path of the DISPATCH directory ``utilities/python/``
 to the Python path (environment variable ``PYTHONPATH``), and do::
 
     import dispatch
