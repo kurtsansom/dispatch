@@ -6,6 +6,7 @@ To clone a working copy of the code from Bitbucket, do
   git clone https://aanordlund@bitbucket.org/aanordlund/dispatch.git
 
 To clone on a host behind a firewall, tunnel port 22 to port 2222:
+::
 
   ssh -R 2222:bitbucket.org:22 your_login@host_behind_firewall
   git clone ssh://aanordlund@localhost:2222/aanordlund/dispatch.git
