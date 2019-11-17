@@ -1,37 +1,35 @@
-Behind firewall
-----------------
+GIT behind a firewall
+----------------------
 
-To use GIT with bitbucket on a cluster with a firewall you an use git over SSH:
-
-1. You need to set up bitbucket for SSH (see
-   `Atlassians instructions <https://confluence.atlassian.com/bitbucket/set-up-ssh-for-git-728138079.html>`_,
-   including the addition of an SSH key to your bitbucket profile.
-
-
-2. Set-up an SSH tunnel (e.g., see
-   `here <https://wickie.hlrs.de/platforms/index.php/Secure_Shell_ssh#Git>`_:
-
+To use GIT with bitbucket on a cluster with a firewall you can use git over SSH, and "tunnel"
+port 2222 on the remote machine to port 22 on your laptop:
 ::
 
-  #!bashsession
-   
-  ssh -R 7777:bitbucket.org:22 username@cluster.domain
+   ssh -R 2222:bitbucket.org:22 your_login@host_behind_firewall
 
-or add to your ``$(HOME)/.ssh/config`` on the host / laptop that you use to login to the cluster:
+From the remote host point of view, the repository is available on the local port (2222), and
+therefore the clone command look like so:
+::
 
+   git clone ssh://aanordlund@localhost:2222/aanordlund/dispatch.git
+
+Once cloned, ``git pull`` and other GIT commands that need access to the repository will work,
+as long as the SSH tunnel is connected.
+
+To avoid having to add the extra options to the SSH command, you can instead add
+the tunneling setup to your ``$(HOME)/.ssh/config`` file on the host or laptop that you use
+to login to the cluster:
 ::
 
   Host clusteralias
       HostName cluster.domain
       User username
-      RemoteForward 7777 bitbucket.org:22
+      RemoteForward 2222 bitbucket.org:22
 
 
-3. The first time, when you clone, you need to use an *SSH version* of the bitbucket link, e.g.::
-
-   git clone ssh://git@localhost:7777/aanordlund/dispatch.git
-
-Once cloned, a regular ``git pull`` should work as long as the SSH tunnel is connected.
+For more on how to set up bitbucket for SSH, see
+`Atlassians instructions <https://confluence.atlassian.com/bitbucket/set-up-ssh-for-git-728138079.html>`_,
+including how to add an SSH key to your bitbucket profile.
 
 
 .. toctree::

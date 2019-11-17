@@ -1,15 +1,12 @@
-Setup
-======
+Installing
+==========
 
 To clone a working copy of the code from Bitbucket, do
-
-  git clone https://aanordlund@bitbucket.org/aanordlund/dispatch.git
-
-To clone on a host behind a firewall, tunnel port 22 to port 2222:
 ::
 
-  ssh -R 2222:bitbucket.org:22 your_login@host_behind_firewall
-  git clone ssh://aanordlund@localhost:2222/aanordlund/dispatch.git
+   git clone https://aanordlund@bitbucket.org/aanordlund/dispatch.git
+
+To work with GIT behind a firewall -- including cloning -- see the link below.
 
 To contribute back to the repository, use pull requests from a branch,
 or (better) setup a fork on Bitbucket (search for "Forking a repository" 
@@ -20,3 +17,7 @@ To get direct write access (mainly for core developers), setup an account
 on Bitbucket if you don't have one, and ask to be added to the access list.
 Then use the URL ``git@bitbucked.org:aanordlund/dispatch`` to clone or fork.
 
+.. toctree::
+   :maxdepth: 3
+
+   git/firewall
