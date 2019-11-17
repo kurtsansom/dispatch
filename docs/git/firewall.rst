@@ -2,7 +2,7 @@ GIT behind a firewall
 ----------------------
 
 To use GIT with bitbucket on a cluster with a firewall you can use git over SSH, and "tunnel"
-port 2222 on the remote machine to port 22 on your laptop:
+port 2222 on the remote machine to port 22 at bitbucket.org, via your laptop:
 ::
 
    ssh -R 2222:bitbucket.org:22 your_login@host_behind_firewall
