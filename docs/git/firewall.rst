@@ -38,4 +38,3 @@ including how to add an SSH key to your bitbucket profile.
 .. toctree::
    :maxdepth: 4
 
-   bitbucket
