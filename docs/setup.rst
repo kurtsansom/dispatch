@@ -21,3 +21,4 @@ Then use the URL ``git@bitbucked.org:aanordlund/dispatch`` to clone or fork.
    :maxdepth: 3
 
    git/firewall
+   git/bitbucket
