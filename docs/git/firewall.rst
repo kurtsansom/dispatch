@@ -6,6 +6,11 @@ port 2222 on the remote machine to port 22 at bitbucket.org, via your laptop:
 ::
 
    ssh -R 2222:bitbucket.org:22 your_login@host_behind_firewall
+   
+To use the ssh: method you need to have an account at bitbucket.org (useful in any case).
+After registering, use ``ssh-keygen`` on the cluster frontend to create an SSH key. Then 
+use the "A" icon in the lower left corner of the bitbucket web page to access "Bitbucket
+Settings" and "SSH keys", and store the public (.pub) part of the key there.
 
 From the remote host point of view, the repository is available on the local port (2222), and
 therefore the clone command look like so:
