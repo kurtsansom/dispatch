@@ -11,12 +11,12 @@ From the remote host point of view, the repository is available on the local por
 therefore the clone command look like so:
 ::
 
-   git clone ssh://aanordlund@localhost:2222/aanordlund/dispatch.git
+   git clone ssh://git@localhost:2222/aanordlund/dispatch.git
 
 Once cloned, ``git pull`` and other GIT commands that need access to the repository will work,
 as long as the SSH tunnel is connected.
 
-To avoid having to add the extra options to the SSH command, you can instead add
+If you want avoid having to add the extra options to the SSH command, you can instead add
 the tunneling setup to your ``$(HOME)/.ssh/config`` file on the host or laptop that you use
 to login to the cluster:
 ::
