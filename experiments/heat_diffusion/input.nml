@@ -1,7 +1,7 @@
 ! $Id$
 
 &io_params          verbose=0 do_trace=f do_output=t method='parallel' /
-&out_params         end_time=0.051 out_time=0.05 print_time=0.0 /
+&out_params         end_time=5.01 out_time=0.50 print_time=0.0 /
 
 &cartesian_params
  size=1,1,1         ! box size

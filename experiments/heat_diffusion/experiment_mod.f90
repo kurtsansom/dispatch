@@ -89,6 +89,7 @@ SUBROUTINE update (self)
   integer:: m(3), i1, i2, i3
   !----------------------------------------------------------------------------
   call trace%begin('experiment_t%update')
+  call self%output
   !----------------------------------------------------------------------------
   ! Copy the variable (temperature) from the current slot (%it) to the %new slot
   !----------------------------------------------------------------------------
@@ -101,12 +102,13 @@ SUBROUTINE update (self)
   m = shape(v)
   allocate (d2f(m(1),m(2),m(3)))
   !----------------------------------------------------------------------------
-  ! Evaluate the diffusion operator
+  ! Evaluate the diffusion operator over the internal patch region (no need
+  ! to do it in the guard zones)
   !----------------------------------------------------------------------------
   do i3=self%mesh(3)%li,self%mesh(3)%ui
   do i2=self%mesh(2)%li,self%mesh(2)%ui
   do i1=self%mesh(1)%li,self%mesh(1)%ui
-    ! ...
+    ! d2f(i1,i2,i3) = ...
   end do
   end do
   end do
