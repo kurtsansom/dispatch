@@ -1,0 +1,19 @@
+! $Id$
+
+&io_params          verbose=5 do_trace=f do_output=t method='parallel' /
+&out_params         end_time=0.051 out_time=0.05 print_time=0.0 /
+
+&cartesian_params
+ size=1,1,1         ! box size
+ dims=04,04,04      ! patch arrangement
+ mpi_dims=2,1,1     !  1-2 MPI ranks
+ omp_init=t         ! spread memory allocation
+/
+&patch_params
+ nt=5
+ nv=2
+ grace=0.1
+ n=3*24
+/
+&download_params    verbose=1 /
+!&timer_params      sec_per_report=10 /
