@@ -67,7 +67,7 @@ SUBROUTINE mkdir_real (dir)
   if (.not.io_unit%do_validate) then
     exists = MakeDirQQ (dir)
     if (exists) then
-      print *, ' Intel created directory '//dir
+      write(stderr,*) ' Intel created directory '//dir
     else
       write(stderr,'(2(a,i5,2x),a)') 'rank:', mpi%rank, 'thread:', omp%thread, &
         ' WARNING: Intel failed to create directory '//dir
@@ -83,7 +83,7 @@ SUBROUTINE mkdir_real (dir)
       inquire (file=dir, exist=exists)
       if (exists) then
         if (.not.io_unit%do_validate) &
-          print *, ' C-binding call created directory '//dir
+          write(stderr,*) ' C-binding call created directory '//dir
         exit
       else
         if (.not.io_unit%do_validate) &
@@ -95,7 +95,7 @@ SUBROUTINE mkdir_real (dir)
       inquire (file=dir, exist=exists)
       if (exists) then
         if (.not.io_unit%do_validate) &
-          print *, ' system call created directory '//dir
+          write(stderr,*) ' system call created directory '//dir
         exit
       else
         if (.not.io_unit%do_validate) &

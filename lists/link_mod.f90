@@ -16,6 +16,7 @@ MODULE link_mod
   USE task_mod
   USE omp_timer_mod
   USE omp_lock_mod
+  USE timer_mod
   implicit none
   private
 
@@ -29,7 +30,7 @@ MODULE link_mod
     class(link_t), pointer :: next_time => null()     ! next link in time order
     class(link_t), pointer :: next_active => null()   ! next link to an active process, in time order
     class(link_t), pointer :: nbors_by_level => null()! decreasing level sorted list
-    type(lock_t):: lock
+    type(lock_t):: lock, qlock
     logical:: initialized = .false.
     logical:: check = .true.
     !---------------------------------------------------------------------------
@@ -46,9 +47,11 @@ MODULE link_mod
     procedure, nopass:: init_verbose
     procedure:: add_nbor_by_quality
     procedure:: add_nbor_by_rank
+    procedure:: add_nbor_link_by_rank
     procedure:: remove_nbor
     procedure:: remove_from_nbors
     procedure:: remove_nbor_list
+    procedure:: remove_nbor_list2
     procedure:: copy_nbor_list
     procedure:: make_new_nbors
     procedure:: make_new_nbor
@@ -60,6 +63,8 @@ MODULE link_mod
     procedure, nopass:: garbage_remove
     procedure:: delete
     procedure:: sort_nbors_by_level
+    procedure:: nbor_info
+    procedure:: info
   end type
   type(link_t), target, public:: garbage
   integer:: garbage_n=0, verbose=0
@@ -76,7 +81,12 @@ SUBROUTINE init (self)
   !.............................................................................
   if (.not.self%initialized) then
     self%initialized = .true.
-    call self%lock%init ('link')
+    call self%lock%init ('nbor')
+    call self%qlock%init ('queue')
+    if (associated(self%task)) then
+      self%lock%id  = self%task%id
+      self%qlock%id = self%task%id
+    end if
   end if
 END SUBROUTINE init
 
@@ -227,6 +237,26 @@ SUBROUTINE check_level_sort (self)
 END SUBROUTINE check_level_sort
 
 !===============================================================================
+!> Add a task link to an nbor list, setting also the nbor relations, based on
+!> the ranks of the link%task and the self%task (which must be the "owner" of
+!> the nbor_list)
+!===============================================================================
+SUBROUTINE add_nbor_link_by_rank (self, nbor_list, link)
+  class(link_t):: self
+  class(link_t), pointer:: nbor_list, link
+  class(link_t), pointer:: nbor
+  !-----------------------------------------------------------------------------
+  call trace%begin ('link_t%add_nbor_link_by_rank')
+  allocate (nbor)
+  nbor%link => link
+  nbor%task => link%task
+  call self%add_nbor_by_rank (nbor_list, nbor)
+  call self%task%nbor_relations (nbor%task, nbor%needed, nbor%needs_me, &
+    nbor%download)
+  call trace%end ()
+END SUBROUTINE add_nbor_link_by_rank
+
+!===============================================================================
 !> Add a link node into the nbors list of self, in increasing rank order.
 !> self must be a link whose 'nbors' points to a chain of nbors
 !===============================================================================
@@ -236,7 +266,6 @@ SUBROUTINE add_nbor_by_rank (self, nbors, this)
   class(link_t), pointer:: next, prev
   !.............................................................................
   call trace_begin ('list_t%add_nbor_by_rank', 3)
-  call self%lock%set ('add_nbor_by_rank')
   !$omp atomic update
   this%task%n_needed = this%task%n_needed + 1   ! because linked task derefined
   if (verbose > 1) &
@@ -249,21 +278,38 @@ SUBROUTINE add_nbor_by_rank (self, nbors, this)
     ' to nbor list of', self%task%id
   nullify (prev)
   next => nbors
+  !-------------------------------------------------------------------------
+  ! Check that the task is not self
+  !-------------------------------------------------------------------------
+  if (this%task%id == self%task%id) then
+    goto 9
+  end if
+  !-------------------------------------------------------------------------
+  ! Check that the new task is not already in the list
+  !-------------------------------------------------------------------------
   do while (associated(next))
-    if (.not.associated(next%task,this%task)) then
-      if (next%task%rank >= this%task%rank) then
-        !-------------------------------------------------------------------------
-        ! Found a task we should be ahead of, so insert here
-        !-------------------------------------------------------------------------
-        this%next => next
-        if (associated(prev)) then
-          prev%next => this
-        else
-          nbors => this
-        end if
-        self%task%n_nbors = self%task%n_nbors+1
-        goto 9
+    if (next%task%id == this%task%id) then
+      goto 9
+    end if
+    next => next%next
+  end do
+  !-------------------------------------------------------------------------
+  ! If not, find the right place to add it
+  !-------------------------------------------------------------------------
+  next => nbors
+  do while (associated(next))
+    if (next%task%rank >= this%task%rank) then
+      !-------------------------------------------------------------------------
+      ! Found a task we should be ahead of, so insert here
+      !-------------------------------------------------------------------------
+      this%next => next
+      if (associated(prev)) then
+        prev%next => this
+      else
+        nbors => this
       end if
+      self%task%n_nbors = self%task%n_nbors+1
+      goto 9
     end if
     prev => next
     next => next%next
@@ -279,9 +325,9 @@ SUBROUTINE add_nbor_by_rank (self, nbors, this)
   end if
   self%task%n_nbors = self%task%n_nbors+1
 9 continue
-  call self%lock%unset ('add_nbor_by_rank')
   call trace_end
 END SUBROUTINE add_nbor_by_rank
+
 
 !===============================================================================
 !> Remove this from the nbor list
@@ -345,10 +391,11 @@ END SUBROUTINE remove_from_nbors
 !===============================================================================
 SUBROUTINE remove_nbor_list (self, nbors)
   class(link_t):: self
-  class(link_t), pointer:: nbors, nbor, next
+  class(link_t), pointer:: nbors, nbor, next, link2, nbor2, next2, prev
   integer, save:: itimer=0
   !-----------------------------------------------------------------------------
-  call trace%begin ('link_t%remove_nbor_list', itimer=itimer)
+  if (timer%detailed) &
+    call trace%begin ('link_t%remove_nbor_list', itimer=itimer)
   if (verbose > 1) &
     write (io_unit%mpi,'(f12.6,i4,2x,a)') wallclock(), omp%thread, 'remove_nbor_list'
     nbor => nbors
@@ -356,16 +403,62 @@ SUBROUTINE remove_nbor_list (self, nbors)
     next => nbor%next
     !$omp atomic update
     nbor%task%n_needed = nbor%task%n_needed - 1
-    if (verbose > 1) &
+    if (verbose > 1) then
       write (io_unit%mpi,'(f12.6,i4,i6,2x,a,i4,2x,a)') wallclock(), omp%thread, &
-      nbor%task%id, 'needed by', nbor%task%n_needed, 'remove_nb_list'
-    flush (io_unit%mpi)
+        nbor%task%id, 'needed by', nbor%task%n_needed, 'remove_nb_list'
+      flush (io_unit%mpi)
+    end if
+    deallocate (nbor)
+    nbor => next
+  end do
+  nullify (nbors)
+  if (timer%detailed) &
+    call trace%end (itimer)
+END SUBROUTINE remove_nbor_list
+
+!===============================================================================
+!> Remove, deallocate, and nullify an existing nbor list
+!===============================================================================
+SUBROUTINE remove_nbor_list2 (self, nbors)
+  class(link_t):: self
+  class(link_t), pointer:: nbors, nbor, next, link2, nbor2, next2, prev
+  integer, save:: itimer=0
+  !-----------------------------------------------------------------------------
+  call trace%begin ('link_t%remove_nbor_list2', itimer=itimer)
+  if (verbose > 1) &
+    write (io_unit%mpi,'(f12.6,i4,2x,a)') wallclock(), omp%thread, 'remove_nbor_list'
+    nbor => nbors
+  do while (associated(nbor))
+    next => nbor%next
+    !$omp atomic update
+    nbor%task%n_needed = nbor%task%n_needed - 1
+    if (verbose > 1) then
+      write (io_unit%mpi,'(f12.6,i4,i6,2x,a,i4,2x,a)') wallclock(), omp%thread, &
+        nbor%task%id, 'needed by', nbor%task%n_needed, 'remove_nb_list'
+      flush (io_unit%mpi)
+    end if
+    !---------------------------------------------------------------------------
+    ! Also remove self from the nbor list of nbor
+    !---------------------------------------------------------------------------
+    nullify (prev)
+    nbor2 => nbor%link%nbor
+    do while (associated(nbor2))
+      if (nbor2%task%id == self%task%id) then
+        if (associated(prev)) then
+          prev%next => nbor2%next
+        else
+          nbor%link%nbor => nbor2%next
+        end if
+      end if
+      prev => nbor2
+      nbor2 => nbor2%next
+    end do
     deallocate (nbor)
     nbor => next
   end do
   nullify (nbors)
   call trace%end (itimer)
-END SUBROUTINE remove_nbor_list
+END SUBROUTINE remove_nbor_list2
 
 !===============================================================================
 !> Create a temporary nbor list
@@ -548,7 +641,7 @@ SUBROUTINE garbage_collect (link)
     call garbage_remove
     call garbage%lock%unset ('garbage')
   end if
-  call trace%end
+  call trace%end()
 END SUBROUTINE garbage_collect
 
 !===============================================================================
@@ -577,7 +670,7 @@ SUBROUTINE garbage_remove
     end if
     link => next
   end do
-  call trace%end
+  call trace%end()
 END SUBROUTINE garbage_remove
 
 !===============================================================================
@@ -595,6 +688,7 @@ SUBROUTINE delete (self, link)
   call trace%begin ('link_t%delete')
   !-----------------------------------------------------------------------------
   call link%lock%set ('link_t%delete')
+  call link%task%log ('delete')
   do while (link%lock%level > 1)
     write (io_unit%output,*) 'delete_link unlocking lock level', link%lock%level
     call link%lock%unset
@@ -628,8 +722,10 @@ SUBROUTINE sort_nbors_by_level (self, old_head, new_head)
   !.............................................................................
   class(link_t), pointer:: nbor, head, prev, find
   integer:: n_nbors
+  integer, save:: itimer=0
   !-----------------------------------------------------------------------------
-  call trace%begin ('link_t%sort_nbors_by_level')
+  if (timer%detailed) &
+    call trace%begin ('link_t%sort_nbors_by_level', itimer=itimer)
   if (verbose > 3) call nbor_print (old_head)
   nullify (head)
   n_nbors = 0
@@ -643,7 +739,8 @@ SUBROUTINE sort_nbors_by_level (self, old_head, new_head)
   !-----------------------------------------------------------------------------
   if (verbose > 2) call nbor_print (head)
   if (verbose > 0) call nbor_check (new_head)
-  call trace%end()
+  if (timer%detailed) &
+    call trace%end (itimer)
 contains
   !-----------------------------------------------------------------------------
   ! Find a place to prepend a clone of nbor into chain with decreasing level.
@@ -728,5 +825,35 @@ contains
     end if
   end subroutine nbor_check
 END SUBROUTINE sort_nbors_by_level
+
+!===============================================================================
+!> Info for one nbor
+!===============================================================================
+SUBROUTINE nbor_info (self, task)
+  class(link_t):: self
+  class(task_t):: task
+  !-----------------------------------------------------------------------------
+  write(io_unit%mpi,'(3x,a,i6,2i4,2x,3l1,2x,2l1,3x,3f9.3)') &
+    'pa_t%nbor_info: id, rank, level, needed, needs_me, download, BV, pos =', &
+    self%task%id, self%task%rank, self%task%level, self%needed, self%needs_me, &
+    self%download, self%task%is_set(bits%boundary), &
+    self%task%is_set(bits%virtual), self%task%distance(task)/ &
+    (0.5d0*(task%size+self%task%size))
+END SUBROUTINE nbor_info
+
+!===============================================================================
+!> Info for all nbors
+!===============================================================================
+SUBROUTINE info (self)
+  class(link_t):: self
+  class(link_t), pointer:: nbor
+  !-----------------------------------------------------------------------------
+  call self%task%task_info()
+  nbor => self%nbor
+  do while (associated(nbor))
+    call nbor%nbor_info (self%task)
+    nbor => nbor%next
+  end do
+END SUBROUTINE info
 
 END MODULE link_mod

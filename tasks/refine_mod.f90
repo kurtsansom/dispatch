@@ -15,7 +15,7 @@
 !>           check_nbors ...
 !>           tasklist%lock%unset
 !>       if ... derefine
-!>         remove_patch
+!>         remove_and_reset
 !>           tasklist%lock%set
 !>           init_nbors ...
 !>           check_nbors ...
@@ -157,13 +157,13 @@
 !> copy.  Then, and only then, the task may be deleted.
 !>
 !> FIXME:  Care should be extended also to updates over MPI.
-!> FIXME:  Use of the deprecated scene_mod should be removed
+!> FIXME:  Use of the deprecated shared_mod should be removed
 !>
 !> MPI specific handling:  Boundary patches are always sent to vnbors, and if
 !> they are new on the recieving rank, new nbor lists are generated, so no new
 !> actions should be needed there.   If a boundary task is removed, the vnbors
 !> are send a copy with the "remove" bit set, and they should react correspond-
-!> ingly, by doing essentially what remove_patch does.
+!> ingly, by doing essentially what remove_and_reset does.
 !|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 MODULE refine_mod
   USE iso_fortran_env, only: int8
@@ -181,30 +181,31 @@ MODULE refine_mod
   USE patch_mod
   USE solver_mod
   USE extras_mod
-  USE scene_mod
+  USE shared_mod
   USE download_mod
-  USE counters_mod
   USE timer_mod
+  USE data_io_mod
   implicit none
   private
   !
   type:: refine_t
     logical:: on                              ! allow external access
-    integer:: levelmin=1                      ! Min level of refinment
-    integer:: levelmax=1                      ! Max level of refinment
+    integer:: levelmin=0                      ! Min level of refinment
+    integer:: levelmax=0                      ! Max level of refinment
     integer:: ratio=2                         ! default
+    real:: safe_ratio=2.1                     ! safe derefine ratio
   contains
     procedure:: init
     procedure:: refine_needed
     procedure:: check_current
     procedure:: check_support
     procedure:: need_to_support
-    procedure:: remove_patch
     procedure:: check_cubical
     procedure:: check_jeans
     procedure:: shock_and_cd_detector
     procedure:: refine_region
     procedure:: gradient_detector
+    procedure:: sanity_check
   end type
   !
   integer:: check_interval=10                 ! Number of steps betwen checks
@@ -225,6 +226,7 @@ MODULE refine_mod
   character(len=32), dimension(ngradvar):: grad_var=""
   logical:: on=.false.                        ! Flag to turn the entire process on or off
   logical:: force_cubical=.false.             ! Force cubical patches
+  logical:: detailed_timer=.false.            ! Lump all AMR together when false
   integer:: n_locks=1                         ! number of locks to use
   integer:: verbose=0                         ! Noise level
   type(refine_t), public:: refine
@@ -236,14 +238,14 @@ CONTAINS
 SUBROUTINE init (self)
   class(refine_t):: self
   integer:: iostat
-  integer, save:: levelmin=99, levelmax=1
+  integer, save:: levelmin=0, levelmax=0
   integer, save:: ratio=2                     ! How does a patch split when it is refined
   logical, save:: first_time = .true.
   namelist /refine_params/ verbose, on, levelmin, levelmax, check_interval, &
     ratio, refine_from_t, refine_until_t, min_dx, max_dx, max_jeans, min_jeans, &
     max_shock, min_shock, max_contact, min_contact, max_grad, min_grad, &
     max_vorticity, min_vorticity, max_compress, min_compress, &
-    grad_var, region_llc, region_urc, force_cubical, n_locks
+    grad_var, region_llc, region_urc, force_cubical, n_locks, detailed_timer
   character(len=120):: id = &
     '$Id$ tasks/refine_mod.f90'
   !-----------------------------------------------------------------------------
@@ -252,14 +254,15 @@ SUBROUTINE init (self)
   !$omp critical (input_cr)
   if (first_time) then
     first_time=.false.
+    levelmin = shared%levelmin
+    levelmax = shared%levelmax
     rewind (io%input)
     read (io%input, refine_params, iostat=iostat)
-    if (io%master) then
-      if (iostat > 0) call io%namelist_warning ('refine_params')
-      write (*, refine_params)
-    end if
+    write (io%output, refine_params)
     if (on) then
-      !omp_lock%links = .true.
+      omp_lock%links = .true.
+    else
+      omp_lock%links = .false.
     end if
   end if
   !-----------------------------------------------------------------------------
@@ -269,6 +272,8 @@ SUBROUTINE init (self)
   !$omp end critical (input_cr)
   self%levelmin = levelmin
   self%levelmax = levelmax
+  shared%levelmin = levelmin
+  shared%levelmax = levelmax
   self%ratio = ratio
   self%on = on
   !-----------------------------------------------------------------------------
@@ -294,7 +299,7 @@ FUNCTION refine_needed (self, tasklist, link) RESULT (refine)
   !----------------------------------------------------------------------------
   refine = 0
   if (.not. on) return
-  call trace%begin('refine_t%needed', itimer=itimer)
+  call trace%begin('refine_t%needed', itimer=itimer, detailed_timer=detailed_timer)
   !----------------------------------------------------------------------------
   ! Refinement criteria, starting with assumed derefinement
   !------------------------------------------------------------------------
@@ -356,7 +361,7 @@ FUNCTION refine_needed (self, tasklist, link) RESULT (refine)
   if (verbose > 3) write (io_unit%output,*) &
     patch%id, refine, minval(patch%irefine), maxval(patch%irefine), 'derefine support'
   !
-  call trace%end (itimer)
+  call trace%end (itimer, detailed_timer=detailed_timer)
 END FUNCTION refine_needed
 
 !===============================================================================
@@ -388,10 +393,6 @@ SUBROUTINE check_current (self, tasklist, link, was_refined, was_derefined)
   call trace%begin('refine_t%check_current', itimer=itimer)
   patch => solver%cast2solver (link%task)
   id = patch%id
-  !-----------------------------------------------------------------------------
-  ! Check if the new task has support. bits%support will be set if not.
-  !-----------------------------------------------------------------------------
-  call check_support (self, tasklist, link, n_added)
   if (verbose > 3) &
     write (io_unit%output,'(i6,2x,a,f12.6,2i4)') &
       link%task%id, 'refine_t%check_current, at t =', &
@@ -451,16 +452,6 @@ SUBROUTINE check_current (self, tasklist, link, was_refined, was_derefined)
       end if
     end if
     !---------------------------------------------------------------------------
-    ! Check support for patches so marked, and clear the bit
-    !---------------------------------------------------------------------------
-    if (patch%is_set (bits%support)) then
-      call check_support (self, tasklist, link, n_added)
-      if (verbose > 1 .and. n_added > 0) then
-        write (io_unit%log,*) 'check_support: pre-added', n_added
-      end if
-      call patch%clear (bits%support)
-    end if
-    !---------------------------------------------------------------------------
     ! Update next refinement step counter and deallocate local irefine
     !---------------------------------------------------------------------------
     patch%check_refine_next = patch%istep + check_interval
@@ -491,7 +482,7 @@ SUBROUTINE selective_refine (self, tasklist, patch, refine, was_refined, was_der
   integer(int8), allocatable:: refined(:,:,:)
   integer:: itimer=0
   !-----------------------------------------------------------------------------
-  call trace%begin ('refine_t%selective_refine', itimer=itimer)
+  call trace%begin ('refine_t%selective_refine', itimer=itimer, detailed_timer=detailed_timer)
   was_refined = .false.
   was_derefined = .false.
   link => patch%link
@@ -601,29 +592,41 @@ SUBROUTINE selective_refine (self, tasklist, patch, refine, was_refined, was_der
       !-----------------------------------------------------------------------
       if (verbose > 0) then
         associate (unit => merge (stdout, io_unit%output, verbose > 1))
-        write (io_unit%output,'(1x,a,i6,":",i2,2x,"B:",l1,3x,a,i6)') &
+        write (io_unit%output,'(1x,a,i6,":",i2,2x,"B:",l1,3x,a,i6,3x,a,f12.6)') &
           'derefine', patch%id, patch%level, patch%is_set (bits%boundary), &
-          'istep:', patch%istep
+          'istep:', patch%istep, 'time:', patch%time
         flush (unit)
         end associate
       end if
-      !-----------------------------------------------------------------------
-      call remove_patch (self, tasklist, link)
+      !-------------------------------------------------------------------------
+      ! If task is to be removed, call the comprehensive remove procedure, which
+      ! includes calling set_init_nbors(), queueing all nbors for immediate
+      ! update of their nbor lists.
+      !-------------------------------------------------------------------------
+      call data_io%update_counters (patch, -1)
+      call patch%log ('remove')
+      call tasklist%remove_and_reset (link)
       was_derefined = .true.
     end if
   end if
   deallocate (refined)
-  call trace%end (itimer)
+  call trace%end (itimer, detailed_timer=detailed_timer)
 END SUBROUTINE selective_refine
 
 !===============================================================================
 !> Check if new%task is a patch, and if it overlaps with other level L-2 patches,
-!> with points not covered by L-1 patches, indicating the a new L-1 patch should
+!> with points not covered by L-1 patches, indicating that a new L-1 patch should
 !> be created from the L-2 patch.
 !>
 !> To implement this, we need to look at the regions that overlap with an L-2
 !> patch, and then run through the nbor list L-1 patches, to see if they cover
-!> the area.  If not, "make an impresion" on the L-2 patch
+!> the area.  If not, "make an impression" on the L-2 patch, by setting the
+!> corresponding cells in its %xrefine map.
+!>
+!> NOTE: This mechanism is currently NOT used; it is left for now, to be removed
+!> when need_to_support() has been validated as being sufficient -- it looks
+!> at the same issue from the point of view of the L-2 patch, which is better,
+!> since it eliminates the need for synchronizing access to %xrefine.
 !===============================================================================
 SUBROUTINE check_support (self, tlist, new, n_added)
   class(refine_t):: self
@@ -644,7 +647,9 @@ SUBROUTINE check_support (self, tlist, new, n_added)
   n_added = 0
   if (new%task%level <= self%levelmin+1) return
   !-----------------------------------------------------------------------------
-  call trace%begin ('refine_t%check_support', itimer=itimer)
+  call trace%begin ('refine_t%check_support', itimer=itimer, detailed_timer=detailed_timer)
+!write (io_unit%log,*) 'unexpected call to check_support for', new%task%id, &
+!new%task%is_set(bits%boundary),  new%task%is_set(bits%virtual)
   !-----------------------------------------------------------------------------
   ! Select patch-based tasks, and assume for now it is OK for updates
   !-----------------------------------------------------------------------------
@@ -720,7 +725,7 @@ SUBROUTINE check_support (self, tlist, new, n_added)
     call tlist%lock%unset ('check_support')
   end if
   !-----------------------------------------------------------------------------
-  call trace%end (itimer)
+  call trace%end (itimer, detailed_timer=detailed_timer)
 END SUBROUTINE check_support
 
 !===============================================================================
@@ -799,53 +804,9 @@ FUNCTION check_derefine_support (self, tlist, link, check_only) RESULT (refine)
   refine = -1
   if (link%task%level == self%levelmin) &
     return
-  call trace%begin('refine_t%check_derefine_support', itimer=itimer)
-  !-----------------------------------------------------------------------------
-  ! If the patch has been found to lack support, increase verbose and call
-  ! check_support() again
+  call trace%begin('refine_t%check_derefine_support', itimer=itimer, detailed_timer=detailed_timer)
   !-----------------------------------------------------------------------------
   call tlist%lock%set ('check_derefine_support')
-  if (omp_lock%links) then
-    call link%lock%set ('check_derefine_support')
-    call link%copy_nbor_list (link%nbor, nbors)
-    !---------------------------------------------------------------------------
-    ! Begin consistency check
-    !---------------------------------------------------------------------------
-    n_nbor1 = 0
-    nbor => nbors
-    do while (associated(nbor))
-      n_nbor1 = n_nbor1+1
-      nbor => nbor%next
-    end do
-    !---------------------------------------------------------------------------
-    call tlist%init_nbors (link)
-    n_nbor2 = 0
-    nbor => link%nbor
-    do while (associated(nbor))
-      n_nbor2 = n_nbor2+1
-      nbor => nbor%next
-    end do
-    !---------------------------------------------------------------------------
-    if (n_nbor2 /= n_nbor1) then
-      write (stdout,*) 'n_nbor changed', n_nbor1, n_nbor2
-      nbor => nbors
-      write (stdout,*) 'before:'
-      do while (associated(nbor))
-        write (stdout,*) nbor%task%id, (nbor%task%position-link%task%position)/link%task%size
-        nbor => nbor%next
-      end do
-      nbor => link%nbor
-      write (stdout,*) 'after:'
-      do while (associated(nbor))
-        write (stdout,*) nbor%task%id, (nbor%task%position-link%task%position)/link%task%size
-        nbor => nbor%next
-      end do
-    end if
-    !---------------------------------------------------------------------------
-    ! End consistency check
-    !---------------------------------------------------------------------------
-  end if
-  refine = -1
   nbor => link%nbor
   do while (associated(nbor))
     if (nbor%task%level == link%task%level+1) then
@@ -857,15 +818,11 @@ FUNCTION check_derefine_support (self, tlist, link, check_only) RESULT (refine)
   if (verbose > 2) &
     write (stdout,*) link%task%id, 'check_derefine_support =', refine
   !-----------------------------------------------------------------------------
-  ! Release locks
+  ! Release lock
   !-----------------------------------------------------------------------------
-  if (omp_lock%links) then
-    call link%remove_nbor_list (nbors)
-    call link%lock%unset ('check_derefine_support')
-  end if
   call tlist%lock%unset ('check_derefine_support')
   !-----------------------------------------------------------------------------
-  call trace%end (itimer)
+  call trace%end (itimer, detailed_timer=detailed_timer)
 END FUNCTION check_derefine_support
 
 !===============================================================================
@@ -883,7 +840,7 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
   integer:: j, count, l(3), u(3), n_added
   integer, save:: itimer=0
   !-----------------------------------------------------------------------------
-  call trace%begin('refine_t%make_child_patch', itimer=itimer)
+  call trace%begin('refine_t%make_child_patch', itimer=itimer, detailed_timer=detailed_timer)
   if (parent%rank /= mpi%rank) then
     print *, 'make_child_patch: mpi%rank, parent%rank =', mpi%rank, parent%rank
     call io%abort ('make_child_patch: wrong MPI rank')
@@ -896,14 +853,16 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
   ! necessary, to pick up properties that may have been set at the experiment
   ! level, which would otherwise be left undefined, or in inconsistent state
   !-----------------------------------------------------------------------------
-  call parent%lock%set
+  call parent%lock%set ('parent')
   allocate (child, source=parent)
-  call parent%lock%unset
+  call parent%lock%unset ('parent')
   call child%clone_mem_accounting
  !-----------------------------------------------------------------------------
   child%mem_allocated = .false.                      ! make sure to get ..
   nullify (child%mem)                                ! .. new mem
   nullify (child%mesh)                               ! .. new mesh
+  nullify (child%lock)                               ! .. new lock
+  nullify (child%mem_lock)                           ! .. new mem_lock
   child%id = 0                                       ! ensure a new ID
   child%size = child_size                            ! new size
   child%position = pos                               ! patch position
@@ -916,7 +875,7 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
   ! Force consistent resolution in new patches, overriding the resolution
   ! inherited from the parent patch.
   !-----------------------------------------------------------------------------
-  child%n = scene%patch_n
+  child%n = shared%patch_n
   !-----------------------------------------------------------------------------
   ! Clear flags -- explictly to show which ones are relevant
   !-----------------------------------------------------------------------------
@@ -940,7 +899,9 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
   ! Initialise the new patch
   !-----------------------------------------------------------------------------
   child%level = parent%level + 1                     ! must be set before init!
+  call child%set (bits%frozen)
   call child%init()                                  ! patch, for a new id
+  call child%clear (bits%frozen)
   child%level = parent%level + 1                     ! override patch_t%init
   child%time  = parent%time                          ! same time
   child%it    = 1                                    ! time index
@@ -951,6 +912,14 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
   child%t(:) = child%time                            ! sinle time
   child%parentid = parent%id                         ! for debugging
   child%check_refine_next = 0                        ! allow recursive refine
+  child%iout = child%time/io%out_time+1              ! previous output index
+  child%out_next = child%iout*io%out_time            ! next output time
+  child%dnload_time = -1.0                           ! for duplicate call test
+  !-----------------------------------------------------------------------------
+  ! Increment I/O write counter, to avoid repeated writing of metadata
+  !-----------------------------------------------------------------------------
+  call data_io%update_counters (child, +1)
+  call child%log ('created')
   !-----------------------------------------------------------------------------
   if (verbose > 0) &
     write (io_unit%log,'(f12.5,2x,a,2i6,1p,g14.5)') &
@@ -967,16 +936,15 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
   end if
   !-----------------------------------------------------------------------------
   ! Set the bits%support here, which causes it to be set on the rank nbors
-  ! if this is a boundary task.  There, a check for support should then
-  ! be triggered, where the nbor lists even in the virtual part of space
-  ! need to be the same as in the internal space (apart from external patches).
-  ! Here, on the owner rank, the bits%support will remain until next time
-  ! the task is to be updated, when code in check_current() sees the bit,
-  ! calls check_support(), and then clears the bit.
+  ! if this is a boundary task.  There, a check for support is then triggered,
+  ! where the nbor lists also in the virtual nbors are refreshed.  On the owner
+  ! rank the bits%support will remain until next time the task is updated, when 
+  ! code in dispatcher0_t%update() sees the bit, call init_nbors(), and clears
+  ! the bit.
   !-----------------------------------------------------------------------------
-  call child%set (bits%support)                      ! trigger check_child_support
+  call child%set (bits%support)
   !-----------------------------------------------------------------------------
-  ! Make parent a neighbor of new child patch.  This will be overwritten
+  ! Make parent a neighbor of the new child patch.  This will be overwritten
   ! in `init_nbor_nbors` but is necessary here to permit interpolation of
   ! values from parent to child.
   !-----------------------------------------------------------------------------
@@ -985,22 +953,22 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
   child_nbor%task => parent
   nullify (child_link%nbor)
   child_link%nbors_by_level => child_nbor
+  !------------------------------------------------------------------------
+  ! Download values from parent and neighbors, except at time = 0, to allow
+  ! recursive refinement there. If time = 0, patch should have been filled
+  ! with values during `child%init()` call.
+  !------------------------------------------------------------------------
   !$omp atomic update
   parent%n_needed = parent%n_needed + 2
+  if (parent%time > 0.0 .and. child%restart <= 0) then
+    call download%download_link (child_link, all_cells=.true.)
+  end if
   !-----------------------------------------------------------------------------
-  ! Add the child task to the task list and then directly into the ready queue,
-  ! bits%init_nbors triggers continue processing in check_current()
+  ! Add the child task to the task list, including giving it an nbor list etc,
+  ! and add it also to the ready queue
   !-----------------------------------------------------------------------------
-  call child%set (bits%init_nbors)
-  call tlist%append_link (child_link)
+  call tlist%add_new_link (child_link)
   call tlist%queue_by_time (child_link)
-  !-----------------------------------------------------------------------------
-  ! Increment I/O write counter, to avoid repeated writing of metadata
-  !-----------------------------------------------------------------------------
-  count = counters%increment (parent%iout+1, io%ntask)
-  !$omp atomic update
-  timer%levelpop (child%level) = &          ! increment level population count
-  timer%levelpop (child%level) + 1
   !-----------------------------------------------------------------------------
   if (verbose > 1) then
     l = parent%index_only (child%position + child%mesh%lf)
@@ -1020,48 +988,8 @@ SUBROUTINE make_child_patch (self, tlist, parent, pos, child_size, &
     flush (io%output)
   end if
   !-----------------------------------------------------------------------------
-  call trace%end (itimer)
+  call trace%end (itimer, detailed_timer=detailed_timer)
 END SUBROUTINE make_child_patch
-
-!===============================================================================
-!> Remove a patch that has been deemed not necessary.  At this point, the task
-!> is not in the ready queue, but is still in the task list.  The proper order
-!> of removal is then:
-!>
-!>   * remove the task link from the task list
-!>   * update the nbor lists of all its nbors
-!>   * deallocate the task memory
-!>   * deallocate the task
-!>   * deallocate the nbor list
-!>   * deallocate the task link
-!===============================================================================
-SUBROUTINE remove_patch (self, tlist, this)
-  class(refine_t):: self
-  class(list_t):: tlist
-  class(link_t), pointer:: this, link, nbor, nbors
-  class(task_t), pointer:: task
-  integer:: count, io_verbose
-  integer, save:: itimer=0
-  !-----------------------------------------------------------------------------
-  ! Start processing, blocking (at least for now) all queue-related activity
-  !-----------------------------------------------------------------------------
-  call trace%begin ('refine_t%remove_patch', itimer=itimer)
-  if (verbose > 0) then
-    write (io_unit%log,'(f12.6,2x,a,i6,1p,g14.5,2x,2l1)') &
-      wallclock(), 'refine_t%remove_patch: id, time, BV =', &
-      this%task%id, this%task%time, &
-      this%task%is_set (bits%boundary), this%task%is_set (bits%virtual)
-  end if
-  !-----------------------------------------------------------------------------
-  ! Remove the link from the task list, update the nbor lists of nbors, then
-  ! deallocate this link (and the associated task memory and task).
-  !-----------------------------------------------------------------------------
-  call tlist%remove_and_reset (this)        ! comprehensive removal
-  !-----------------------------------------------------------------------------
-  !$omp atomic write
-  io%dtime = huge(1d0)
-  call trace%end (itimer)
-END SUBROUTINE remove_patch
 
 !===============================================================================
 !> Check that the patch dimensions are the desired cubical ones
@@ -1071,7 +999,7 @@ FUNCTION check_cubical (self, patch) RESULT (refine_it)
   class(solver_t), pointer:: patch
   integer:: refine_it
   !.............................................................................
-  if (all(patch%n==scene%patch_n)) then
+  if (all(patch%n==shared%patch_n)) then
     refine_it = -1
   else
     refine_it = 1
@@ -1080,7 +1008,7 @@ FUNCTION check_cubical (self, patch) RESULT (refine_it)
 END FUNCTION check_cubical
 
 !===============================================================================
-!> Refine / derefine on ratio of cell size to Jeans lenght (max_jeans/min_jeans)
+!> Refine / derefine on ratio of Jeans length to cell size (max_jeans/min_jeans)
 !===============================================================================
 FUNCTION check_Jeans (self, patch) RESULT(refine_it)
   USE math_mod
@@ -1091,17 +1019,17 @@ FUNCTION check_Jeans (self, patch) RESULT(refine_it)
   !.............................................................................
   integer:: imin(3), l(3), u(3)
   real:: Jeans_num, dmin, c
-  real, dimension(:,:,:), allocatable:: c_sound2, pg
+  real, dimension(:,:,:), allocatable:: pg
   real(kind=KindScalarVar), dimension(:,:,:), pointer:: d, e
   real, allocatable:: test(:,:,:)
   logical:: masked
   !-----------------------------------------------------------------------------
   call trace%begin ('refine_t%check_jeans')
+  call self%sanity_check (min_jeans, max_jeans, 'check_Jeans')
   l = 1
   u = patch%gn
   d => patch%mem(l(1):u(1),l(2):u(2),l(3):u(3),patch%idx%d,patch%it,1)
-  allocate(c_sound2(size(d,1),size(d,2),size(d,3)), &
-           pg(patch%gn(1),patch%gn(2),patch%gn(3)))
+  allocate(pg(patch%gn(1),patch%gn(2),patch%gn(3)))
   select type (patch)
   class is (solver_t)
     pg = patch%gas_pressure() + tiny(1.0)
@@ -1117,29 +1045,32 @@ FUNCTION check_Jeans (self, patch) RESULT(refine_it)
   else
     allocate (test(patch%gn(1),patch%gn(2),patch%gn(3)))
     c =  minval(patch%mesh%d)*sqrt(scaling%grav/(math%pi*patch%gamma))
-    test = c*d/sqrt(pg)
+    !print *, patch%id, scaling%grav, 'grav'
+    test = sqrt(pg)/(c*d)
+    !print *, patch%id, patch%fminval(d), patch%fmaxval(d), 'min/max d'
+    !print *, patch%id, patch%fminval(test), patch%fmaxval(test), 'min/max L_J/ds'
     !---------------------------------------------------------------------------
-    ! The Jeans number if the unrefined part
+    ! The Jeans number in the unrefined part
     !---------------------------------------------------------------------------
-    Jeans_num = maxval(test, mask=patch%irefine <= 0)
+    Jeans_num = minval(test, mask=patch%irefine <= 0)
     !---------------------------------------------------------------------------
     ! Compute a per-cell criterion, which sets patch%irefine to +1 where it
     ! needs refinement, and sets it to 0 where the current resolution is needed.
     ! By implication, where it does not set patch%irefine, and where it remains
     ! at the intial -1 value, derefinement is allowed
     !---------------------------------------------------------------------------
-    where (test > max_jeans)
+    where (test < min_jeans)
       patch%irefine = +1
     !---------------------------------------------------------------------------
     ! Jeans number not small enough, or overlying refinement
     !---------------------------------------------------------------------------
-    else where (test > min_jeans)
+    else where (test < max_jeans)
       patch%irefine = max (patch%irefine, 0)
     end where
     deallocate (test)
     refine_it = 0
-    if (Jeans_num > max_jeans) refine_it = +1
-    if (Jeans_num < min_jeans) refine_it = -1
+    if (Jeans_num > max_jeans) refine_it = -1
+    if (Jeans_num < min_jeans) refine_it = +1
     !---------------------------------------------------------------------------
     if (verbose > 2 .or. &
        (verbose > 1 .and. patch%level < self%levelmax .and. refine_it > 0) .or. &
@@ -1172,7 +1103,7 @@ FUNCTION check_compress (self, patch) RESULT(refine_it)
   logical:: masked
   integer, save:: itimer=0
   !-----------------------------------------------------------------------------
-  call trace%begin ('refine_t%check_compress', itimer=itimer)
+  call trace%begin ('refine_t%check_compress', itimer=itimer, detailed_timer=detailed_timer)
   l = 1
   u = patch%gn
   allocate (test(patch%gn(1),patch%gn(2),patch%gn(3)))
@@ -1212,7 +1143,7 @@ FUNCTION check_compress (self, patch) RESULT(refine_it)
       masked
   end if
   deallocate (test)
-  call trace%end (itimer)
+  call trace%end (itimer, detailed_timer=detailed_timer)
 END FUNCTION check_compress
 
 !===============================================================================
@@ -1231,7 +1162,7 @@ FUNCTION check_vorticity (self, patch) RESULT(refine_it)
   logical:: masked
   integer, save:: itimer=0
   !-----------------------------------------------------------------------------
-  call trace%begin ('refine_t%check_vorticity', itimer=itimer)
+  call trace%begin ('refine_t%check_vorticity', itimer=itimer, detailed_timer=detailed_timer)
   l = 1
   u = patch%gn
   allocate (test(patch%gn(1),patch%gn(2),patch%gn(3)))
@@ -1271,7 +1202,7 @@ FUNCTION check_vorticity (self, patch) RESULT(refine_it)
       masked
   end if
   deallocate (test)
-  call trace%end (itimer)
+  call trace%end (itimer, detailed_timer=detailed_timer)
 END FUNCTION check_vorticity
 
 !===============================================================================
@@ -1549,5 +1480,32 @@ FUNCTION refine_region (self, patch) RESULT (refine)
   refine = merge(1,0,refine_it)
   call trace%end()
 END FUNCTION refine_region
+
+!===============================================================================
+!> Check that the derefinement criterion is sane
+!===============================================================================
+SUBROUTINE sanity_check (self, min, max, label, reverse)
+  class(refine_t):: self
+  real:: min, max
+  character(len=*):: label
+  logical, optional:: reverse
+  !.............................................................................
+  if (max == 0.0) then
+    if (present(reverse)) then
+      min = max/self%safe_ratio
+    else
+      max = min*self%safe_ratio
+    end if
+  else if (max < min*2.0) then
+    if (present(reverse)) then
+      min = max/2.0
+    else
+      max = min*2.0
+    end if
+    if (io%master) then
+      write (stdout,*) 'WARNING: '//trim(label)//' max value set to', max
+    end if
+  end if
+END SUBROUTINE sanity_check
 
 END MODULE refine_mod

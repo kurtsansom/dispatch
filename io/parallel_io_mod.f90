@@ -92,20 +92,19 @@ SUBROUTINE init (patch)
     first_time = .false.
     rewind (io%input); read(io%input, parallel_io_params, iostat=iostat)
      write (io%output, parallel_io_params)
+    if (io%ntask==0) &
+      call io%abort ('parallel_io_t%init: io%ntask == 0')
+    call mpi_io%init
+    call mpi_io%set (nwrite=io%nwrite*(io%time_derivs+1))
+    if (io%method=='parallel') then
+      allocate (file_out)
+      write (filename,'(a,"/snapshots.dat")') trim(io%outputname)
+      call file_out%openw (filename)
+    end if
   end if
   !$omp end critical (input_cr)
-  if (io%ntask==0) &
-    call io%abort ('parallel_io_t%init: io%ntask == 0')
-  io%nwrite = io%ntask
-  call mpi_io%init
-  call mpi_io%set (nwrite=io%nwrite*(io%time_derivs+1))
-  if (io%method=='parallel') then
-    allocate (file_out)
-    write (filename,'(a,"/snapshots.dat")') trim(io%outputname)
-    call file_out%openw (filename)
-  end if
   call time_slices%init (patch%nt)
-  call trace%end
+  call trace%end()
 END SUBROUTINE init
 
 !===============================================================================
@@ -140,20 +139,19 @@ SUBROUTINE open_and_close ()
     if (check_files) then
       !$omp atomic write
       check_files = .false.
+      !$omp end atomic
       call trace%begin ('parallel_io_t%open_and_close')
       if (associated(files_out)) then
         do i=io0,io1
           call files_out(i)%open_and_close()
         end do
       end if
-      call trace%end
+      call trace%end()
     end if
     !$omp end critical (files_out_cr)
     if (verbose > 1) then
-      !$omp critical (write_mpi_cr)
-      write (io_unit%mpi,*) wallclock(), 'parallel_io_t%open_and_close: exiting'
-      flush (io_unit%mpi)
-      !$omp end critical (write_mpi_cr)
+      write (io_unit%log,*) wallclock(), 'parallel_io_t%open_and_close: exiting'
+      flush (io_unit%log)
     end if
   end if
 END SUBROUTINE open_and_close
@@ -213,7 +211,6 @@ SUBROUTINE output (patch, count)
   !-----------------------------------------------------------------------------
   ! Info
   !-----------------------------------------------------------------------------
-  !$omp critical (first_cr)
   if (first_time) then
     first_time = .false.
     write(io%output,'(a,f8.3,a,i10,a)') &
@@ -223,9 +220,8 @@ SUBROUTINE output (patch, count)
       ' parallel_io_t%output: iout, n, snapshot_words, buffer_words =', &
       patch%iout, n, snapshot_words, buffer_words
   end if
-  !$omp end critical (first_cr)
   !-----------------------------------------------------------------------------
-  ! Time interpolation to exaxt out_next
+  ! Time interpolation to exact out_next
   !-----------------------------------------------------------------------------
   allocate (mem(n(1),n(2),n(3),patch%nt))
   allocate (buffer(n(1),n(2),n(3),io%nv))
@@ -293,7 +289,7 @@ contains
     else
       mem = patch%mem(l(1):u(1),l(2):u(2),l(3):u(3),iv,patch%iit(1:nt1),1)
     end if
-    call trace%end
+    call trace%end()
   end subroutine
   !-----------------------------------------------------------------------------
   subroutine io_write (slot, ider)
@@ -310,7 +306,7 @@ contains
     !---------------------------------------------------------------------------
     ! This ordering has the derivative order added to the patch%id, which is
     ! in turn causing an increment by (io%time_derivs+1), so effectively adding
-    ! nv additional variables for each derivative ordre, making it easy to
+    ! nv additional variables for each derivative order, making it easy to
     ! address the derivatives, while using snapshot numbers incremented by 1.
     !---------------------------------------------------------------------------
     else
@@ -341,10 +337,8 @@ SUBROUTINE output_single (patch, count)
   ! method='snapshot' => One file per snapshot
   !-----------------------------------------------------------------------------
   if (verbose > 1) then
-    !$omp critical (write_mpi_cr)
-    write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '  begin'
-    flush (io_unit%mpi)
-    !$omp end critical (write_mpi_cr)
+    write (io_unit%log,*) wallclock(), patch%id, patch%time, '  begin'
+    flush (io_unit%log)
   end if
   if (io%method == 'snapshot') then
     if (.not. associated(files_out)) then
@@ -352,10 +346,8 @@ SUBROUTINE output_single (patch, count)
       io1 = io0 + nint((io%end_time-patch%out_next)/io%out_time) + 1
       closed = io0-1
       if (verbose > 0 .and. omp%master) then
-        !$omp critical (write_mpi_cr)
-        write (io_unit%mpi,'(a,i4," -- ",i4)') &
+        write (io_unit%log,'(a,i4," -- ",i4)') &
           'parallel_io_t%output: initializing for snapshots', io0, io1
-        !$omp end critical (write_mpi_cr)
       end if
       allocate (files_out(io0:io1))
       do i=io0,io0+1
@@ -371,16 +363,12 @@ SUBROUTINE output_single (patch, count)
       opened = patch%iout+1
       write (filename,'(a,"/",i5.5,"/snapshot.dat")') trim(io%outputname), opened
       if (verbose > 1) then
-        !$omp critical (write_mpi_cr)
-        write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '  request_open'
-        flush (io_unit%mpi)
-        !$omp end critical (write_mpi_cr)
+        write (io_unit%log,*) wallclock(), patch%id, patch%time, '  request_open'
+        flush (io_unit%log)
       end if
-      !$omp critical (files_out_cr)
       call files_out(opened)%request_open (filename)
       !$omp atomic write
       check_files = .true.
-      !$omp end critical (files_out_cr)
     end if
   end if
   !-----------------------------------------------------------------------------
@@ -388,10 +376,8 @@ SUBROUTINE output_single (patch, count)
   ! snspshot offset is that times the number of patches per snapshot.
   !-----------------------------------------------------------------------------
   if (verbose > 1) then
-    !$omp critical (write_mpi_cr)
-    write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '  set size'
-    flush (io_unit%mpi)
-    !$omp end critical (write_mpi_cr)
+    write (io_unit%log,*) wallclock(), patch%id, patch%time, '  set size'
+    flush (io_unit%log)
   end if
   if (io%guard_zones) then
     n = patch%gn
@@ -402,10 +388,8 @@ SUBROUTINE output_single (patch, count)
   ! Slots in the file are ordered (id,iv,iout).
   !-----------------------------------------------------------------------------
   if (verbose > 1) then
-    !$omp critical (write_mpi_cr)
-    write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '  call mpi_io'
-    flush (io_unit%mpi)
-    !$omp end critical (write_mpi_cr)
+    write (io_unit%log,*) wallclock(), patch%id, patch%time, '  call mpi_io'
+    flush (io_unit%log)
   end if
   if (io%ntask==0) &
     call io%abort ('parallel_io_t%output_single: io%ntask == 0')
@@ -422,57 +406,46 @@ SUBROUTINE output_single (patch, count)
   ! Info
   !-----------------------------------------------------------------------------
   if (first_time) then
-    !$omp critical (first_cr)
-    if (first_time) then
-      first_time = .false.
-      write(io%output,'(a,f8.3,a,i10,a)') &
-        ' output snapshot size =', snapshot_words*4d0/1024d0**3, ' GB, in', &
-        io%ntotal, ' patches'
-      write(io%output,'(a,4i6,2i12)') &
-        ' parallel_io_t%output: iout, n, snapshot_words, buffer_words =', &
-        patch%iout, n, snapshot_words, buffer_words
-    end if
-    !$omp end critical (first_cr)
+    first_time = .false.
+    write(io%output,'(a,f8.3,a,i10,a)') &
+      ' output snapshot size =', snapshot_words*4d0/1024d0**3, ' GB, in', &
+      io%ntotal, ' patches'
+    write(io%output,'(a,4i6,2i12)') &
+      ' parallel_io_t%output: iout, n, snapshot_words, buffer_words =', &
+      patch%iout, n, snapshot_words, buffer_words
   end if
   !-----------------------------------------------------------------------------
   call mpi_io%set (snapshot_words, buffer_words, 99)
   !-----------------------------------------------------------------------------
-  !$omp critical (allocate_cr)
   if (.not.associated(parallel_io%buffer)) then
     allocate (parallel_io%buffer(n(1),n(2),n(3),io%ntask,io%nv,nder))
     if (verbose > 0) &
       write (io%output,*) 'shape io%buffer =', shape(parallel_io%buffer)
   end if
-  !$omp end critical (allocate_cr)
   ! --- rank-local patch 1D index; cf. cartesian_mod ---
   ip = patch%ip
-  if (ip < 0 .or. ip > io%ntask) then
-    write(io%output,*) 'WARNING', ip, io%ntask
+  if (ip < 0 .or. ip > io%ntask .and. patch%time < io%end_time) then
+      write (io_unit%output,*) &
+        'parallel_io_t%output_single: WARNING io, ntask =', ip, io%ntask
     ip = max(1,min(ip,io%ntask))
   end if
   if (verbose > 0) then
-    !$omp critical (write_output_cr)
     write(io%output,'(a,6i6,2i12,l3)') &
       ' parallel_io_t%output_single: id, ip, iout, n, snapshot_words, buffer_words =', &
       patch%id, ip, patch%iout, n, snapshot_words, buffer_words, associated(parallel_io%buffer)
     flush (io%output)
-    !$omp end critical (write_output_cr)
   end if
   if (verbose > 1) then
-    !$omp critical (write_mpi_cr)
-    write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '  allocate mem'
-    flush (io_unit%mpi)
-    !$omp end critical (write_mpi_cr)
+    write (io_unit%log,*) wallclock(), patch%id, patch%time, '  allocate mem'
+    flush (io_unit%log)
   end if
   allocate (mem(n(1),n(2),n(3),patch%nt-1))
   !-----------------------------------------------------------------------------
-  ! Time interpolation to exaxt out_next
+  ! Time interpolation to exact time = out_next.
   !-----------------------------------------------------------------------------
   if (verbose > 1) then
-    !$omp critical (write_mpi_cr)
-    write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '  convert var, interpolate'
-    flush (io_unit%mpi)
-    !$omp end critical (write_mpi_cr)
+    write (io_unit%log,*) wallclock(), patch%id, patch%time, '  convert var, interpolate'
+    flush (io_unit%log)
   end if
   do iv=1,io%nv
     call convert_variables ! copy `patch%mem` into `mem`, converting if desired
@@ -498,10 +471,8 @@ SUBROUTINE output_single (patch, count)
   end if
   deallocate (mem)
   if (verbose > 0) then
-    !$omp critical (write_mpi_cr)
-    write (io_unit%mpi,*) wallclock(), patch%id, patch%time, count, ' buffer'
-    flush (io_unit%mpi)
-    !$omp end critical (write_mpi_cr)
+    write (io_unit%log,*) wallclock(), patch%id, patch%time, count, ' buffer'
+    flush (io_unit%log)
   end if
   if (count == 0) then
     if (io%method == 'snapshot') then
@@ -512,10 +483,8 @@ SUBROUTINE output_single (patch, count)
     end if
     start = wallclock()
     if (verbose > 0) then
-      !$omp critical (write_mpi_cr)
-      write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '  start:'//trim(file_out%filename)
-      flush (io_unit%mpi)
-      !$omp end critical (write_mpi_cr)
+      write (io_unit%log,*) wallclock(), patch%id, patch%time, '  start:'//trim(file_out%filename)
+      flush (io_unit%log)
     end if
     do ider=1,nder
     do iv=1,io%nv
@@ -527,15 +496,13 @@ SUBROUTINE output_single (patch, count)
       irec = 1 + mpi%rank + mpi%size*(iv-1 + (ider-1)*io%nv)
       if (verbose > 1) &
         write (io_unit%output,*) 'write(1): irec, iout =', irec, iout
-      write (io_unit%mpi,*) 'mpi_io%write: iout, irec =', 1+iout, irec
+      write (io_unit%log,*) 'mpi_io%write: iout, irec =', 1+iout, irec
       call mpi_io%write (parallel_io%buffer(:,:,:,:,iv,ider), 1+iout, irec)
     end do
     end do
     if (verbose > 0) then
-      !$omp critical (write_mpi_cr)
-      write (io_unit%mpi,*) wallclock(), patch%id, patch%time, '    end:'//trim(file_out%filename)
-      flush (io_unit%mpi)
-      !$omp end critical (write_mpi_cr)
+      write (io_unit%log,*) wallclock(), patch%id, patch%time, '    end:'//trim(file_out%filename)
+      flush (io_unit%log)
     end if
     write (io_unit%log,'(a,f7.3,1x,a)') &
       'parallel_io_t%output_single: MPI_File_write_at I/O', wallclock()-start, 'sec'
@@ -552,17 +519,16 @@ SUBROUTINE output_single (patch, count)
     end if
   end if
   if (verbose > 1) then
-    !$omp critical (write_mpi_cr)
-    write (io_unit%mpi,*) wallclock(), patch%id, patch%time, ' END'
-    flush (io_unit%mpi)
-    !$omp end critical (write_mpi_cr)
+    write (io_unit%log,*) wallclock(), patch%id, patch%time, ' END'
+    flush (io_unit%log)
   end if
   call trace%end (itimer)
 contains
   !-----------------------------------------------------------------------------
   ! Copy variables from `patch%mem` to `mem` array, converting variables based
   ! on the I/O format parameter.  This procedure is internal to the 'output_single'
-  ! procedure, and as such only supports io%format in the range 10-13.
+  ! procedure, and as such only supports io%format in the range 10-13.  In the
+  ! process, the time slot ordering is rearranged into increasing time.
   !-----------------------------------------------------------------------------
   subroutine convert_variables
     integer:: nt1, l(3), u(3), i, j, k
@@ -593,7 +559,7 @@ contains
     else
       mem = patch%mem(l(1):u(1),l(2):u(2),l(3):u(3),iv,patch%iit(1:nt1),1)
     end if
-    call trace%end
+    call trace%end()
   end subroutine
 END SUBROUTINE output_single
 
@@ -833,17 +799,19 @@ SUBROUTINE input_single (patch, ok)
     !-----------------------------------------------------------------------------
     ! Info
     !-----------------------------------------------------------------------------
+    if (first_time) then
     !$omp critical (first_cr)
     if (first_time) then
-      first_time = .false.
       write(io%output,'(a,f8.3,a,i10,a)') &
         ' output snapshot size =', snapshot_words*4d0/1024d0**3, ' GB, in', &
         io%ntotal, ' patches'
         write(io%output,'(a,4i6,2i12)') &
       ' parallel_io_t%output: iout, n, snapshot_words, buffer_words =', &
         patch%iout, n, snapshot_words, buffer_words
+      first_time = .false.
     end if
     !$omp end critical (first_cr)
+    end if
     allocate (buffer(n(1),n(2),n(3)))
     !-----------------------------------------------------------------------------
     ! The previous number of ranks is equal to the product of the previous mpi_dims.
@@ -852,13 +820,11 @@ SUBROUTINE input_single (patch, ok)
     nrank = product(io%mpi_odims)
     rank = mpi_coords%coords_to_rank (patch%ipos*io%mpi_odims/io%dims)
     if (verbose > 0) then
-      !$omp critical (write_mpi_cr)
       irec = 1 + rank
       write (io_unit%output,'(a,i6,4(2x,3i5))') &
         'single_patch: id, ip, rank, nrank, per_rank, ipos =', &
           patch%id, ip, rank, nrank, io%dims/io%mpi_odims, patch%ipos, &
           irec, patch%iout
-      !$omp end critical (write_mpi_cr)
     end if
     do iv=1,io%nv
       irec = 1 + rank + nrank*(iv-1)
@@ -875,9 +841,9 @@ SUBROUTINE input_single (patch, ok)
     end do
     deallocate (buffer)
   else
+    if (first_time) then
     !$omp critical (read_first_cr)
     if (first_time) then
-      first_time = .false.
       !---------------------------------------------------------------------------
       ! Info
       !---------------------------------------------------------------------------
@@ -909,15 +875,18 @@ SUBROUTINE input_single (patch, ok)
       end do
       if (.not.read_failed) &
         write(io%output,*) 'io%input_single: read succeeded, snapshot', io%restart
+      first_time = .false.
     end if
     !$omp end critical (read_first_cr)
+    end if
     if (read_failed) then
       ok = .false.
       call trace%end (itimer)
       return
     end if
     if (ip < 1 .or. ip > io%ntask) then
-      write (io_unit%output,*) 'WARNING', ip, io%ntask
+      write (io_unit%output,*) &
+        'parallel_io_t%input_single: WARNING io, ntask =', ip, io%ntask
       flush (io_unit%output)
       ip = max(1,min(ip,io%ntask))
     end if
@@ -983,7 +952,7 @@ contains
       patch%mem(l(1):u(1),l(2):u(2),l(3):u(3),iv,:,1) * &
       patch%mem(l(1):u(1),l(2):u(2),l(3):u(3),patch%idx%d,:,1)
     end if
-    call trace%end
+    call trace%end()
   end subroutine
 END SUBROUTINE input_single
 

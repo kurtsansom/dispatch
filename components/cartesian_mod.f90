@@ -1,18 +1,21 @@
 MODULE cartesian_mod
-  USE omp_mod
-  USE mpi_mod
-  USE mpi_coords_mod
-  USE io_mod
-  USE bits_mod
-  USE trace_mod
-  USE task_mod
-  USE patch_mod
-  USE link_mod
   USE task_list_mod
   USE experiment_mod
+  USE patch_mod
+  USE link_mod
+  USE task_mod
+  USE trace_mod
+  USE io_mod
   USE timer_mod
+  USE mpi_coords_mod
+  USE mpi_mod
+  USE omp_mod
+  USE omp_timer_mod
+  USE bits_mod
   implicit none
   private
+  type, public, extends(task_t):: rank_t
+  end type
   type, public:: cartesian_t
     real(8):: size(3)
     integer:: dims(3)
@@ -22,6 +25,7 @@ MODULE cartesian_mod
     procedure, nopass:: diagnostics
   end type
   logical:: omp_init=.false.
+  type(rank_t):: rank
   integer, save:: np=0                  ! patches per process
   public task_list_t                    ! export, to avoid excessive USE
 CONTAINS
@@ -33,27 +37,23 @@ SUBROUTINE init (self, label)
   class(cartesian_t):: self
   character(len=*), optional:: label
   !.............................................................................
-  type(task_list_t):: task_list
   type(task_list_t), pointer:: patch_list
-  class(link_t), pointer:: link, next, nbor
-  integer:: patches_per_mpi(3)
-  real:: position(3)
+  class(link_t), pointer:: link, next
   class(experiment_t), pointer:: patch
   class(task_t), pointer:: task
-  integer:: i, j, k, i1, j1, k1, rank, nbrank, dim, nn(2,3)
-  !
-  real(8):: size(3) = [1.0,1.0,1.0]
+  integer:: i, j, k, id, ip
   integer:: dims(3) = [4,4,4]
+  integer:: patches_per_mpi(3)
   integer:: mpi_dims(3) = [1,1,1]
   integer:: per_rank(3) = [0,0,0]
-  integer:: npatch, nvpatch, nbpatch, nlpatch
+  real(8):: size(3) = [1.0,1.0,1.0]
   real(8):: origin(3) = [-0.5,-0.5,-0.5]
+  real(8):: wc
   logical:: face_nbors=.false.
-  integer:: thread, icoords(3),ipos(3)
-  integer:: id, ip
+  logical:: periodic(3)=.true.
   integer, save:: itimer=0
   namelist /cartesian_params/ size, dims, mpi_dims, per_rank, origin, face_nbors, &
-    omp_init
+    omp_init, periodic
   character(len=120):: ids = &
     '$Id$ components/cartesian_mod.f90'
   !-----------------------------------------------------------------------------
@@ -90,19 +90,23 @@ SUBROUTINE init (self, label)
   mpi_coords%npatch = patches_per_mpi
   io%mpi_dims = mpi_dims
   !-----------------------------------------------------------------------------
+  ! Set attritbutes of the rank_t data type -- just enough to use distance().
+  !-----------------------------------------------------------------------------
+  rank%periodic = .true.
+  rank%box = self%size
+  rank%size = rank%box/mpi_dims
+  rank%ds = rank%size/patches_per_mpi
+  rank%position = (mpi_coords%rank_to_coords(mpi%rank) + 0.5_8)*rank%size
+  !-----------------------------------------------------------------------------
   ! Begin on task list
   !-----------------------------------------------------------------------------
   allocate (self%task_list)
-  call self%task_list%init ('Cartesian')
+  call self%task_list%init ('tlist')
   self%task_list%size = self%size
   self%task_list%dims = self%dims
   io%dims = self%dims
   self%task_list%n_tasks = product(self%dims)
   self%task_list%face_nbors = face_nbors
-  do dim=1,3
-    nn(:,dim) = merge([-1,1],[0,0],self%dims(dim)>1)
-  end do
-  npatch=0; nvpatch=0; nbpatch=0; nlpatch=0
   !-----------------------------------------------------------------------------
   ! Allocate an array of links, pointing to patches, and give the patches each
   ! id, rank, size, position, integer position, and status bits.  Discard
@@ -121,66 +125,68 @@ SUBROUTINE init (self, label)
       ip = ip + 1
       patch%ip = ip
     end if
-    call patch%task_t%init_unique
+    !---------------------------------------------------------------------------
+    ! Generate the same IDs on all ranks, pruning the external tasks below
+    !---------------------------------------------------------------------------
+    call patch%task_t%init_unique (same=.true.)
     patch%box = self%size
     patch%size = self%size / self%dims
     patch%position = ([i,j,k]+0.5d0)*patch%size + origin
+    if (any(abs(rank%distance (patch)) > 0.5*(rank%size + 1.5*rank%ds))) then
+      deallocate (link, patch)
+      cycle
+    end if
+    call patch%set (bits%virtual)
+    patch%ds = patch%size*0.001
     patch%origin = origin
     patch%llc_cart = patch%position - 0.5 * patch%size
+    patch%centre_nat = patch%position
     patch%llc_nat = patch%llc_cart
+    patch%periodic = periodic
     call patch%set(bits%static)
     if (all(self%dims==1)) call task%set(bits%root_grid)
-    rank = patch%rank
-    if (rank==mpi%rank) then
-      call patch%set(bits%internal)
-    else
-      call patch%set(bits%external)
-    end if
-    !---------------------------------------------------------------------------
-    ! Set the patch status bits, by checking the ranks of neighbor patches
-    !---------------------------------------------------------------------------
-    do k1=nn(1,3),nn(2,3)
-    do j1=nn(1,2),nn(2,2)
-    do i1=nn(1,1),nn(2,1)
-      if (i1==0.and.j1==0.and.k1==0) cycle
-      ipos = modulo([i+i1,j+j1,k+k1],self%dims)
-      nbrank = mpi_coords%coords_to_rank(ipos/patches_per_mpi)
-      if (rank==mpi%rank .and. nbrank/=mpi%rank) then
-        call patch%set(bits%boundary)
-        call patch%clear(bits%internal)
-      end if
-      if (rank/=mpi%rank .and. nbrank==mpi%rank) then
-        call patch%set(bits%virtual)
-        call patch%clear(bits%external)
-      end if
-    end do
-    end do
-    end do
-    if (rank == mpi%rank) nlpatch=nlpatch+1
-    if (patch%is_set(bits%external)) then
-      deallocate (patch, link)
-    else
-      task => patch
-      call self%task_list%append_link (link)
-      if (patch%is_set(bits%boundary))  nbpatch = nbpatch+1
-      if (patch%is_set(bits%virtual ))  nvpatch = nvpatch+1
-      npatch = npatch+1
-    end if
+    ! -- initially append all tasks to the task list, to build nbor lists ------
+    call self%task_list%append_link (link)
   end do
   end do
   end do
   !-----------------------------------------------------------------------------
-  ! Count task types
+  ! Generate nbor lists and set status bits for all tasks
   !-----------------------------------------------------------------------------
+  if (io%verbose > 0) write(stdout,*) 'cartesian_t%init: init_all_nbors'
+  call self%task_list%init_all_nbors
+  if (io%verbose > 0) write(stdout,*) 'cartesian_t%init: reset_status'
+  call self%task_list%reset_status
+  !-----------------------------------------------------------------------------
+  ! Remove tasks that are external, and make sure to also remove them from the
+  ! nbor lists of virtual tasks
+  !-----------------------------------------------------------------------------
+  link => self%task_list%head
+  do while (associated(link))
+    next => link%next
+    if (link%task%is_set (bits%external)) then
+      call link%remove_nbor_list2 (link%nbor)
+      call self%task_list%remove (link)
+      deallocate (link%task)
+      deallocate (link)
+    end if
+    link => next
+  end do
+  !-----------------------------------------------------------------------------
+  ! This call is not valid until the patch meshes have been allocated
+  !-----------------------------------------------------------------------------
+  if (io%verbose > 0) write(stdout,*) 'cartesian_t%init: count status'
   call self%task_list%count_status
   !-----------------------------------------------------------------------------
   ! These must be set before reading input snapshots
   !-----------------------------------------------------------------------------
   io%ntask = self%task_list%na
+  io%nwrite = self%task_list%na
   io%ntotal = product(self%dims)
-  write(stdout,*) 'ntask, ntotal =', io%ntask, io%ntotal
+  write (stdout,*) 'Number of tasks in task list:', self%task_list%n
+  write(stdout,*) 'ntask, nwrite, ntotal =', io%ntask, io%nwrite, io%ntotal
   !-----------------------------------------------------------------------------
-  ! Initialize patches on our rank and virtual patches, in parallel OMP tasks
+  ! Initialize tasks
   !-----------------------------------------------------------------------------
   if (omp_init) then
     !$omp parallel default(shared)
@@ -189,37 +195,20 @@ SUBROUTINE init (self, label)
   else
     call init_exp (self, origin)
   end if
-  if (io%master) then
-    write (*, cartesian_params)
-    write (io_unit%nml, cartesian_params)
-    flush (io_unit%nml)
-  end if
   !-----------------------------------------------------------------------------
-  ! Construct nbor lists, set the internal/boundary/virtual bits, and count the
-  ! number of tasks in each category.  The nbor list constructions are (and
-  ! must remain) independent of the status bits, since setting the status bits
-  ! relies on correct nbor lists -- hence the order of calls below.
+  ! This call is not valid until the patch mem and meshes have been allocated
   !-----------------------------------------------------------------------------
-  write (stdout,*) 'Number of tasks in task list:', &
-    self%task_list%n, io%ntask
-  if (io%verbose > 0) &
-    write(stdout,*) 'cartesian_t%init: init all nbors'
-  call self%task_list%init_all_nbors
-  if (io%verbose > 0) &
-    write(stdout,*) 'cartesian_t%init: setting status bits'
-  call self%task_list%reset_status
-  if (io%verbose > 0) &
-    write(stdout,*) 'cartesian_t%init: count status'
-  call self%task_list%count_status
   if (io%verbose > 0) &
     write(stdout,*) 'cartesian_t%init: init boundaries'
   call self%task_list%init_bdries
   !-----------------------------------------------------------------------------
+  if (io_unit%master) then
+    write (io_unit%nml, cartesian_params)
+    flush (io_unit%nml)
+  end if
   if (io%verbose > 0) &
     write(stdout,*) 'cartesian_t%init: diagnostics'
   call self%diagnostics()
-  write (io_unit%output,'(1x,a,5(i5,1x,a))') 'cartesian_t%init: ', &
-    npatch,'patches',nvpatch,'virtual',nbpatch,'boundary',nlpatch,'local'
   if (io%verbose > 0) &
     write(stdout,*) 'cartesian_t%init: print tasks'
   call self%task_list%print_tasks

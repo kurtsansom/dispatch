@@ -5,21 +5,20 @@
 #
 VPATH := $(VPATH):$(SOLVER)/extras:$(TOP)/solvers/$(SOLVER)/extras:$(TOP)/extras
 include $(TOP)/extras/spitzer_conductivity/Makefile
+include $(TOP)/extras/cooling/Makefile
 
 # Dependencies
 extras_mod.o            : io_mod.o trace_mod.o patch_mod.o gpatch_mod.o connect_mod.o \
                           task_mod.o list_mod.o
-selfgravity_mod.o       : io_mod.o os_mod.o trace_mod.o patch_mod.o download_mod.o poisson_mod.o \
-                          vector_ops.o download_mod.o initial_mod.o kinds_mod.o mesh_mod.o units_mod.o \
-                          timer_mod.o omp_timer_mod.o bits_mod.o
+selfgravity_mod.o       : patch_mod.o poisson_mod.o vector_ops.o download_mod.o
 gravity_mod.o           : patch_mod.o units_mod.o scaling_mod.o link_mod.o io_mod.o
 trace_particles_mod.o   : io_mod.o trace_mod.o dll_mod.o omp_timer_mod.o random_mod.o \
                           mesh_mod.o link_mod.o patch_mod.o mpi_buffer_mod.o \
-                          particle_mod.o particle_list_mod.o
-sinkparticles_mod.o     : io_unit_mod.o trace_mod.o download_mod.o data_hub_mod.o link_mod.o \
-                          list_mod.o particle_history_mod.o gpatch_mod.o
-sinkparticle_mod.o      : io_unit_mod.o trace_mod.o download_mod.o data_hub_mod.o link_mod.o \
-                          list_mod.o particle_history_mod.o gpatch_mod.o
-sink_patch_mod.o        : io_unit_mod.o trace_mod.o download_mod.o data_hub_mod.o link_mod.o \
-                          list_mod.o gpatch_mod.o particle_solver_mod.o
+                          particle_mod.o particles_mod.o
+sink_particles_mod.o    : io_unit_mod.o trace_mod.o download_mod.o data_hub_mod.o link_mod.o \
+                          list_mod.o gpatch_mod.o particle_solver_mod.o h5_mod.o SNe_mod.o
+newton_mod.o            : io_unit_mod.o trace_mod.o link_mod.o gpatch_mod.o mesh_mod.o
+SNe_mod.o               : io_mod.o trace_mod.o gpatch_mod.o scaling_mod.o lagrange_mod.o \
+                          list_mod.o dll_mod.o bits_mod.o
+lagrangian_mod.o        : io_mod.o trace_mod.o patch_mod.o link_mod.o
 connect_mod.o           :

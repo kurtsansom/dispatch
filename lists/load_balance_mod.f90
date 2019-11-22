@@ -100,26 +100,25 @@ CONTAINS
 SUBROUTINE init (self)
   class(load_balance_t):: self
   logical, save:: on=.false.
+#ifndef _CRAYFTN
+  type(io_rank_info_t):: io_rank_info
+#endif
   namelist /load_balance_params/ on, cadence, threshold, grace, &
     duration, only_initial, q_min, q_max
   integer:: iostat
   !.............................................................................
   call self%lock%init ('load')
-  rewind (io%input); read(io%input, load_balance_params, iostat=iostat)
-  if (io%master) then
-    if (io%master) write (*,load_balance_params)
-  end if
+  rewind (io%input)
+  read(io%input, load_balance_params, iostat=iostat)
+  write (io%output, load_balance_params)
   self%on = on
   next_info = cadence
 #ifndef _CRAYFTN
-  block
-  type(io_rank_info_t):: io_rank_info
   if (n_io_rank_info*4 /= storage_size(io_rank_info)/8) then
     print *, n_io_rank_info*4, storage_size(io_rank_info)/8
     error stop 'The hardwired loadbalance_mod::n_io_rank_info is incorrect'
   end if
   n_io_rank_info = storage_size(io_rank_info)/32
-  end block
 #endif
 END SUBROUTINE init
 
@@ -685,7 +684,7 @@ FUNCTION check_load (self, head) RESULT (sell)
     end do
   end if ! (rank_info%ok .and. wc < duration)
   call self%lock%unset
-  call trace%end()
+  call trace%end(itimer)
 END FUNCTION check_load
 
 END MODULE load_balance_mod

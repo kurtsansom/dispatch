@@ -10,6 +10,7 @@
 !===============================================================================
 MODULE mhd_mod
   USE io_mod
+  USE aux_mod
   USE bits_mod
   USE omp_mod
   USE math_mod
@@ -34,37 +35,39 @@ MODULE mhd_mod
   type, extends(extras_t), public:: mhd_t
     real, dimension(:,:,:),   pointer    :: d, dddt, e, dedt
     real, dimension(:,:,:,:), pointer    :: p, dpdt, B, dBdt
-    real, dimension(:,:,:),   pointer    :: lnd, ee, pg
+    real, dimension(:,:,:),   pointer    :: lnd, ee, pg=>null(), tt=>null()
     real, dimension(:,:,:),   allocatable:: qrad
-    !procedure(divB_clean1),   pointer    :: divB_clean => divb_clean2
+    procedure(divB_clean1),   pointer    :: divB_clean => null()
     real:: nu(6)
     real:: cdtd
     real:: maxJ=0.0
     logical:: mhd=.false.
     logical:: first_time=.true.
-    logical:: do_force=.true.
-    type(extras_t):: extras
   contains
+    procedure:: pre_init
     procedure:: init
     procedure:: pde
+    procedure:: pre_update
     procedure:: update
     procedure:: output
-    procedure:: divb_clean
     procedure:: gas_pressure
+    procedure:: gas_pressure_sub
   end type
   logical, save:: unsigned=.true.
+  logical, save:: do_test=.false.
   logical, save:: do_smooth=.false.
   logical, save:: do_maxwell = .true.
+  logical, save:: do_temperature = .false.
   integer, save:: verbose=0
   integer, save:: divb_cleaner=2
 CONTAINS
 
 !===============================================================================
-!> The construction with a double test on first_time avoids entering a critical
-!> region once the variable has been set.
+!> Read the namelist parameters, store them, determine the type of the solver
+!> (HD or MHD) and set the indices.
 !===============================================================================
-SUBROUTINE init (self)
-  class(mhd_t):: self
+SUBROUTINE pre_init (self)
+  class(mhd_t), target:: self
   type(index_t):: idx
   integer:: i, iv
   real, save:: nu(6)=[0.1,1.0,0.0,0.5,0.5,0.5], csound=1.0, cdtd=0.5, courant=0.2
@@ -73,9 +76,10 @@ SUBROUTINE init (self)
   logical, save:: mhd=.false.
   character(len=16), save:: eos
   namelist /stagger_params/ nu, courant, gamma, csound, cdtd, hardwire, eos, &
-    do_smooth, unsigned, do_maxwell, verbose, divb_cleaner
+    do_smooth, unsigned, do_maxwell, do_temperature, verbose, divb_cleaner, &
+    do_test
   !----------------------------------------------------------------------------
-  call trace%begin('mhd_t%init')
+  call trace%begin('mhd_t%pre_init')
   !$omp critical (input_cr)
   if (first_time) then
     first_time = .false.
@@ -102,17 +106,12 @@ SUBROUTINE init (self)
   ! called again, from extras_t%init, when gamma is known and can be passed on.
   !-----------------------------------------------------------------------------
   self%initial%mhd = self%mhd
-  call self%idx%init (self%nv, self%mhd)
   call self%initial%init (self%kind, real(self%gamma))
   self%mhd = self%initial%mhd
-  print *,'mhd, nv =', self%mhd, self%nv
   if (self%mhd) then
     self%kind = 'stagger2e_mhd_patch'
   else
     self%kind = 'stagger2e_hd_patch'
-    self%idx%bx = -1
-    self%idx%by = -1
-    self%idx%bz = -1
   end if
   if (self%nv == 0) then
     if (self%mhd) then
@@ -120,13 +119,39 @@ SUBROUTINE init (self)
     else
       self%nv = 5
     end if
+  else
+    self%nv = self%nv + 5
+    if (self%mhd) self%nv = self%nv + 3
   end if
+  select case(divb_cleaner)
+  case(1)
+    self%divb_clean => divb_clean1
+  case(2)
+    self%divb_clean => divb_clean2
+  case default
+  end select
+  call self%idx%init (5, self%mhd)
+  ! ----------------------------------------------------------------------------
+  ! Call extras pre-init
+  ! ----------------------------------------------------------------------------
+  call self%extras_t%pre_init
+  call trace%end()
+END SUBROUTINE pre_init
+
+!===============================================================================
+!> The construction with a double test on first_time avoids entering a critical
+!> region once the variable has been set.
+!===============================================================================
+SUBROUTINE init (self)
+  class(mhd_t):: self
+  integer :: i
+  ! ----------------------------------------------------------------------------
+  call trace%begin('mhd_t%init')
   !-----------------------------------------------------------------------------
   ! Allocate memory and mesh, etc
   !-----------------------------------------------------------------------------
-  call self%idx%init (5, self%mhd)
-  call self%gpatch_t%init
   self%type = 'mhd_t'
+  call self%patch_t%init
   do i=1,3
     self%mesh(i)%h(self%idx%px+i-1) = -0.5
     if (self%mhd) self%mesh(i)%h(self%idx%bx+i-1) = -0.5
@@ -136,17 +161,23 @@ SUBROUTINE init (self)
       print '("h:",8f5.2)', self%mesh(i)%h
     end do
   end if
-  !select case(divb_cleaner)
-  !case(1)
-  !  self%divb_clean => divb_clean1
-  !case(2)
-  !  self%divb_clean => divb_clean2
-  !case default
-  !  call io%abort('mhd_mod:: divb cleaner method not understood')
-  !end select
+  call self%patch_t%init
+  select case(divb_cleaner)
+  case(1)
+    self%divb_clean => divb_clean1
+  case(2)
+    self%divb_clean => divb_clean2
+  case default
+    call io%abort('mhd_mod:: divb cleaner method not understood')
+  end select
+  call self%gpatch_t%init
   self%unsigned(self%idx%d)  = unsigned
-  self%pervolume(self%idx%s) = unsigned
- call trace%end
+  self%pervolume(self%idx%e) = unsigned
+  ! ----------------------------------------------------------------------------
+  ! init extras
+  ! ----------------------------------------------------------------------------
+  call self%extras_t%init
+ call trace%end()
 END SUBROUTINE init
 
 !===============================================================================
@@ -228,7 +259,7 @@ SUBROUTINE pde (self)
   ee = e/d                                                                      ! ops: 0 0 1
   self%lnd => lnd
   self%ee  => ee
-  pg = self%gas_pressure ()
+  call self%gas_pressure_sub (d, self%lnd, self%ee, pg)
   self%pg => pg
   !-----------------------------------------------------------------------------
   ! Conservation of momentum -- first the diagonal part of the stress tensor
@@ -388,13 +419,11 @@ SUBROUTINE pde (self)
   ! External force; e.g. point source gravity.  Note that the density factor is
   ! applied here, and should not be included in the function definition
   !-----------------------------------------------------------------------------
-  if (self%do_force) then
-    if (allocated(self%force_per_unit_mass)) then
-      dpdt = dpdt + dd*self%force_per_unit_mass                                  ! ops: 2 2 0
-    end if
-    if (allocated(self%force_per_unit_volume)) then
-      dpdt = dpdt + self%force_per_unit_volume
-    end if
+  if (allocated(self%force_per_unit_mass)) then
+    dpdt = dpdt + dd*self%force_per_unit_mass                                  ! ops: 2 2 0
+  end if
+  if (allocated(self%force_per_unit_volume)) then
+    dpdt = dpdt + self%force_per_unit_volume
   end if
   !-----------------------------------------------------------------------------
   ! Conservation of energy; reuse the mass flux for the energy flux
@@ -450,15 +479,13 @@ SUBROUTINE pde (self)
     dBdt = -curl_up(ds,emf)
   end if
   !-----------------------------------------------------------------------------
-  ! Radiative heating / cooling, if any
+  ! External heating / cooling, if any; e.g. radiative or conductive
   !-----------------------------------------------------------------------------
-  if (self%idx%qr > 0) then
-    qr => self%mem(:,:,:,self%idx%qr,self%new,1)
-    dedt = dedt + qr
-    if (verbose>2 .or. self%id==io%id_debug) then
-      u_max = self%cdtd*dsmax*self%fmaxval(abs((qr-ee*dddt)/d),outer=.true.)
-      write(io%output,1) self%id, self%time, 'u_max(qrad)', u_max, self%u_max
-    end if
+  if (allocated(self%heating_per_unit_mass)) then
+    dedt = dedt + d*self%heating_per_unit_mass                                  ! ops: 2 2 0
+  end if
+  if (allocated(self%heating_per_unit_volume)) then
+    dedt = dedt + self%heating_per_unit_volume
   end if
   !-----------------------------------------------------------------------------
   ! Time step limitation for rate of change dE/dt = (de/dt-(e/d)*dddt)/d
@@ -485,6 +512,40 @@ SUBROUTINE pde (self)
 END SUBROUTINE pde
 
 !===============================================================================
+!> This procedure is called by solver_t%update, before it calls mhd_t%update
+!===============================================================================
+SUBROUTINE pre_update (self)
+  class(mhd_t), target:: self
+  real, dimension(:,:,:), pointer:: d, e, lnd, ee
+  integer:: iz
+  !-----------------------------------------------------------------------------
+  ! Compute initial temperature
+  !-----------------------------------------------------------------------------
+  call trace%begin('mhd_t%pre_update')
+  if (do_temperature) then
+    if (.not.associated(self%tt)) &
+    allocate (self%tt(self%gn(1),self%gn(2),self%gn(3)))
+    allocate (    lnd(self%gn(1),self%gn(2),self%gn(3)))
+    allocate (     ee(self%gn(1),self%gn(2),self%gn(3)))
+    d => self%mem(:,:,:,self%idx%d,self%it,1)
+    e => self%mem(:,:,:,self%idx%e,self%it,1)
+    lnd = alog(d)
+    ee = e/d
+    call eos%lookup_table (shape(self%tt), lnd=lnd, ee=ee, tt=self%tt)
+    deallocate (lnd, ee)
+    if (verbose > 0) &
+      write(io%output,*) self%id, 'mhd_t%pre_update:  tt =', &
+        minval(self%tt), maxval(self%tt)
+    call self%aux%register ('tt', self%tt)
+  end if
+  !-----------------------------------------------------------------------------
+  ! Now we can call the extras_t%pre_update, which may need the temperature
+  !-----------------------------------------------------------------------------
+  call self%extras_t%pre_update
+  call trace%end()
+END SUBROUTINE pre_update
+
+!===============================================================================
 !> Take a complete update step.  This can be overloaded in higher levels, e.g.
 !> in experiment_mod, where boundary conditions may be inserted
 !===============================================================================
@@ -505,13 +566,16 @@ SUBROUTINE update (self)
   end if
   if (self%mhd) call self%divB_clean
   call self%pde
+  !-----------------------------------------------------------------------------
+  ! The call to courant_condition may optionally be interscepted in extras_t
+  !-----------------------------------------------------------------------------
   call self%courant_condition
   if (verbose>2) &
     call self%check_density('before timestep')
   call timestep%update (self%id, self%iit, self%dt, self%mem, self%mesh, self%lock)
   call self%check_density(' after timestep')
-  !-----------------------------------------------------------------------------
   call self%counter_update
+  !-----------------------------------------------------------------------------
   call trace%end (itimer)
 END SUBROUTINE update
 
@@ -568,7 +632,7 @@ END SUBROUTINE divb_clean1
 !> Enforce div(B)=0 in the guard zones, by succesively imposing the condition,
 !> layer-by-layer, on the component perpendicular to each of the patch faces.
 !===============================================================================
-SUBROUTINE divb_clean (self)
+SUBROUTINE divb_clean2 (self)
   class(mhd_t):: self
   !.............................................................................
   real, dimension(:,:,:), pointer:: bx, by, bz
@@ -626,7 +690,7 @@ SUBROUTINE divb_clean (self)
       by(l(1)   :u(1)   ,l(2)+j1:u(2)+j1,iz) - by(l(1):u(1),l(2):u(2),iz))
   end do
   call trace%end (itimer)
-END SUBROUTINE divb_clean
+END SUBROUTINE divb_clean2
 
 !===============================================================================
 !> Add extra, MHD-related information to the patch .txt output file
@@ -653,37 +717,78 @@ SUBROUTINE output (self)
     end if
   !$omp end critical (out_cr)
   end if
-  call trace%end
+  call trace%end()
 END SUBROUTINE output
 
 !===============================================================================
-FUNCTION gas_pressure (self) RESULT (pg)
+FUNCTION gas_pressure (self) result(pg)
   class(mhd_t):: self
   real, dimension(self%gn(1),self%gn(2),self%gn(3)):: pg
-  real, dimension(:,:,:), pointer:: d, e, tt
+  real, dimension(:,:,:), pointer:: d, lnd, e, ee
   integer, save:: nprint=1
   !-----------------------------------------------------------------------------
-  call trace%begin ('mhd_t%gas_pressure')
+  call trace%begin ('mhd_t%gas_pressure_sub')
+  d  => self%mem(:,:,:,self%idx%d ,self%it,1)
+  e  => self%mem(:,:,:,self%idx%e ,self%it,1)
+  call allocate_scalars(self%gn,ee)
+  ee = e/d
   if (trim(self%eos)=='ideal') then
-    d => self%mem(:,:,:,self%idx%d,self%it,1)
-    e => self%mem(:,:,:,self%idx%e,self%it,1)
     if (self%gamma==1d0) then
       pg = d*self%csound**2
     else
-      pg = e*(self%gamma-1)
+      pg = d*ee*(self%gamma-1)
     end if
   else
-    tt => self%mem(:,:,:,self%idx%tt,self%it,1)
-    call eos%lookup_table (shape(self%lnd), lnd=self%lnd, ee=self%ee, pg=pg, tt=tt)
-    if (io%master .and. (verbose>1 .or. nprint>0)) then
+    if (do_temperature) then
+      call eos%lookup_table (shape(d), d=d, ee=ee, pg=pg, tt=self%tt)
+    else
+      call eos%lookup_table (shape(d), d=d, ee=ee, pg=pg)
+    end if
+    if (verbose > 1 .or. nprint > 0) then
       nprint = nprint-1
-      write(io%output,*) self%id, 'lookup_table: lnd =', minval(self%lnd), maxval(self%lnd)
-      write(io%output,*) self%id, 'lookup_table:  ee =', minval(self%ee ), maxval(self%ee )
-      write(io%output,*) self%id, 'lookup_table:  pg =', minval(pg),       maxval(pg)
-      write(io%output,*) self%id, 'lookup_table:  tt =', minval(tt),       maxval(tt)
+      write(io%output,*) self%id, 'lookup_table: lnd =', minval(lnd), maxval(lnd)
+      write(io%output,*) self%id, 'lookup_table:  ee =', minval(ee) , maxval(ee)
+      write(io%output,*) self%id, 'lookup_table:  pg =', minval(pg) , maxval(pg)
+      if (do_temperature) &
+        write(io%output,*) self%id, 'lookup_table:  tt =', minval(self%tt), &
+          maxval(self%tt)
+    end if
+  end if
+  call deallocate_scalars(ee)
+  call trace%end()
+END FUNCTION gas_pressure
+
+!===============================================================================
+SUBROUTINE gas_pressure_sub (self, d, lnd, ee, pg)
+  class(mhd_t):: self
+  real, dimension(:,:,:):: pg
+  real, dimension(:,:,:), pointer:: d, lnd, ee
+  integer, save:: nprint=1
+  !-----------------------------------------------------------------------------
+  call trace%begin ('mhd_t%gas_pressure_sub')
+  if (trim(self%eos)=='ideal') then
+    if (self%gamma==1d0) then
+      pg = d*self%csound**2
+    else
+      pg = d*ee*(self%gamma-1)
+    end if
+  else
+    if (do_temperature) then
+      call eos%lookup_table (shape(lnd), lnd=lnd, ee=ee, pg=pg, tt=self%tt)
+    else
+      call eos%lookup_table (shape(lnd), lnd=lnd, ee=ee, pg=pg)
+    end if
+    if (verbose > 1 .or. nprint > 0) then
+      nprint = nprint-1
+      write(io%output,*) self%id, 'lookup_table: lnd =', minval(lnd), maxval(lnd)
+      write(io%output,*) self%id, 'lookup_table:  ee =', minval(ee) , maxval(ee)
+      write(io%output,*) self%id, 'lookup_table:  pg =', minval(pg) , maxval(pg)
+      if (do_temperature) &
+        write(io%output,*) self%id, 'lookup_table:  tt =', minval(self%tt), &
+          maxval(self%tt)
     end if
   end if
   call trace%end()
-END FUNCTION gas_pressure
+END SUBROUTINE gas_pressure_sub
 
 END MODULE mhd_mod

@@ -5,13 +5,15 @@ MODULE task_mod
   USE io_mod
   USE omp_mod
   USE omp_lock_mod
+  USE omp_timer_mod
+  USE timer_mod
   USE mpi_mod
   USE bits_mod
   USE trace_mod
-  USE scene_mod
   USE mpi_mesg_mod
   USE random_mod
   USE dll_mod
+  USE aux_mod
   implicit none
   private
   !-----------------------------------------------------------------------------
@@ -41,11 +43,14 @@ MODULE task_mod
     integer:: ip                        ! rank local task id
     integer:: n_needed=1                ! number of tasks that needs it
     integer:: seq=0                     ! incremental sequence number
+    integer:: n_failed                  ! number of times check_ready() failed
+    integer:: logging=0                 ! level of logging
     real(8):: time = 0d0
     real(8):: atime = 0d0               ! for active queue
     real(8):: out_next = 0d0
     real(8):: print_next = 0d0
     real(8):: dtime = 0d0
+    real(8):: min_dtime = 0d0
     real(4):: grace = 0.0
     real(8):: position(3) = 0d0
     real(8):: origin(3)=0d0             ! the cartesian box origin (for BCs)
@@ -56,17 +61,18 @@ MODULE task_mod
     real(8):: box(3)=1d0                ! the periodic wrapping size
     real(8):: wallclock
     real(8):: unpack_time=0d0
+    real(8):: dnload_time=-1d0          ! last dnload time
     real(4):: quality = 0.0
-    integer, dimension(:), pointer:: iit
-    real(8), dimension(:), pointer:: t
-    real(8), dimension(:), pointer:: dt
-    character(len=64), pointer:: name
-    class(task_t), pointer:: parent
+    integer, dimension(:), pointer:: iit => null()
+    real(8), dimension(:), pointer:: t   => null()
+    real(8), dimension(:), pointer:: dt  => null()
+    character(len=64), pointer:: name    => null()
+    class(task_t), pointer:: parent      => null()
+    class(mesg_t), pointer:: mesg        => null()
     character(len=64):: kind='task'     ! solver name
     character(len=12):: type='task_t'   ! task type
     real:: latency=0.0                  ! MPI message latency
     real(8):: wc_last=0.0_8
-    class(mesg_t), pointer:: mesg=>null()
     real(8):: sync_time=0d0
     real(8):: update_last=0.0_8
     real:: update_cadence=0.0
@@ -74,12 +80,14 @@ MODULE task_mod
     logical:: track=.false.
     logical:: periodic(3)=.true.
     logical:: rotated=.false.
-    type(lock_t):: lock                 ! OMP lock
+    logical:: limit_dtime=.false.
+    type(lock_t), pointer:: lock        ! OMP lock
     type(random_t):: random             ! pseudo-random number generator
+    type(aux_t):: aux
+    integer(8):: amr_offset=0_8         ! byte offset in amr_io
   contains
     procedure:: init
     procedure:: init_unique
-    procedure:: init_id_reset
     procedure:: dealloc
     procedure:: dnload
     procedure:: update => void
@@ -93,19 +101,23 @@ MODULE task_mod
     procedure:: is_set
     procedure:: is_clear
     procedure:: allocate => void
-    procedure:: deallocate => void
     procedure:: allocate_mesg => void
     procedure:: unique_id
     procedure:: load_balance
     procedure:: has_finished
     procedure:: overlaps
-    procedure:: distance                ! return the distance btw two patches
+    procedure:: overlaps_point
+    procedure:: nbor_relations
+    procedure:: distance
+    procedure:: point_distance
     procedure:: pack
     procedure:: unpack
     procedure:: is_relevant
     procedure:: test_update
     procedure:: solver_is
     procedure:: debug
+    procedure:: task_info
+    procedure:: log
   end type
   integer, dimension(:), pointer, save:: id => null()
   type(dll_t), pointer:: deleted_list
@@ -125,104 +137,59 @@ SUBROUTINE dnload (self, only)
 END SUBROUTINE dnload
 
 !===============================================================================
-!> Define unique task id, unless already set before entry.  The task 
-!> IDs must be unique across MPI ranks, and must initially satisfy 
-!> modulo(self%id, mpi%size) == self%rank + 1
+!> Define unique task id, unless already set before entry.
 !===============================================================================
 SUBROUTINE init (self)
   class (task_t):: self
-  character(len=120):: id = &
+  character(len=120):: ids= &
     '$Id$ tasks/task_mod.f90'
   !-----------------------------------------------------------------------------
-  call trace_begin ('task_t%init',2)
-  call trace%print_id (id)
-  call init_unique (self, keep=.true.)
-  call trace_end
+  call trace_begin ('task_t%init')
+  call trace%print_id (ids)
+  if (self%id == 0) then
+    call init_unique (self)
+  end if
+  allocate (self%lock)
+  call self%lock%init (self%kind(1:4), id=self%id+2)
+  call self%random%init
+  call trace_end ()
 END SUBROUTINE init
 
 !===============================================================================
 !> Define unique patch ids.  A critical region is OK; this is only done once.
 !===============================================================================
-SUBROUTINE init_unique (self, keep)
+SUBROUTINE init_unique (self, same)
   class (task_t):: self
-  logical, optional:: keep
-  !.............................................................................
-  integer:: rank
-  logical, save:: first_time=.true.
-  class(*), pointer:: idp
+  logical, optional:: same
+  integer:: id
+  integer, save:: id_same=0
   !-----------------------------------------------------------------------------
-  call trace_begin ('task_t%init_id')
-  !$omp critical (task_init_cr)
-  if (first_time) then
-    first_time = .false.
-    allocate (id(0:mpi%size-1))
-    do rank=0,mpi%size-1
-      id(rank) = 1+rank
-    end do
-    self%id = id(self%rank)
-    !print *, self%rank, 'IDDBG first time, id =', id(self%rank)
-    id(self%rank) = id(self%rank) + mpi%size
-  !else if (deleted_list%n > 0) then
-  !  idp => deleted_list%pop()
-  !  select type (idp)
-  !  type is (integer)
-  !  id = idp
-  !  end select
-  !  dellocate (idp%car)
-  !  dellocate (idp)
+  ! Ranks that call this routine in sync  with same=.true. get a matching set
+  ! of IDs to prune from, while the master updates the global counter
   !-----------------------------------------------------------------------------
-  ! If ID already assigned and keep==.true., check consistency with MPI, and
-  ! adjust the saved ID accordingly
-  !-----------------------------------------------------------------------------
-  else if (present(keep)) then
-    if (self%id > 0) then
-      if (mod(self%id-1,mpi%size) == self%rank) then
-        id(self%rank) = max(id(self%rank),self%id)
-      else if (io%verbose > 1) then
-        print '("enforced ID =",i7," not consistent with MPI rank/size",2i6)', &
-          self%id, self%rank, mpi%size
-      end if
-      !print *, self%rank, 'IDDBG present(keep) 1, id =', id(self%rank)
-    else
-      self%id = id(self%rank)
-      !print *, self%rank, 'IDDBG present(keep) 2, id =', id(self%rank)
-      id(self%rank) = id(self%rank) + mpi%size
+  call trace_begin ('task_t%init_unique')
+  if (present(same) .and. same) then
+    !$omp atomic capture
+    id_same = id_same+1
+    id = id_same
+    !$omp end atomic
+    if (mpi%rank==0) then               ! on the master rank ..
+      mpi%id%i = id+1                   ! .. update the mpi%id counter directly
     end if
+    if (io%verbose > 0) &
+      write (io_unit%log,*) 'task_t%init_unique(same): mpi%id, id =', id_same, id
   !-----------------------------------------------------------------------------
-  ! Here we enforce a unique and MPI-consistent ID
+  ! Calls without the same option return unique IDs, which do not overlap with
+  ! matching set of IDs
   !-----------------------------------------------------------------------------
   else
-    self%id = id(self%rank)
-    !print *, self%rank, 'IDDBG generic, id =', id(self%rank)
-    id(self%rank) = id(self%rank) + mpi%size
+    id = mpi%id%update (1)
+    if (io%verbose > 0) &
+      write (io_unit%log,*) 'task_t%init_unique(else): mpi%id, id =', id_same, id
   end if
-  if (self%id==1) self%track = .true.
-  if (self%id==io%id_debug) self%track = .true.
-  scene%n_patch = self%id
-  !$omp end critical (task_init_cr)
-  if (io%verbose>2) &
-    write (io_unit%log,*) 'obtained patch id', self%id
-  call self%lock%init (self%kind(1:4), id=self%id+2)
-  call self%random%init
-  call trace_end
+  self%id = id
+  call trace%end ()
 END SUBROUTINE init_unique
-
-!===============================================================================
-!> Reset unique patch ids.  A critical region is OK; this is only done once.
-!> This is done after, for example, `download%test`, which creates test patches.
-!> It is set to one rather than zero because there must have already been a
-!> patch with ID = 1 when `download%test` was called.
-!===============================================================================
-SUBROUTINE init_id_reset (self)
-  class (task_t):: self
-  logical:: first_time=.true.
-  !.............................................................................
-  call trace_begin ('task_t%init_reset')
-  !$omp critical (task_init_cr)
-  id = 1 + self%rank
-  !$omp end critical (task_init_cr)
-  call trace_end
-END SUBROUTINE init_id_reset
 
 !===============================================================================
 !> Deallocate permanent arrays
@@ -279,12 +246,13 @@ SUBROUTINE rotate (self)
     if (io%grace    > 0.0) self%grace    = io%grace
   end if
   if (self%rotated) return
-  call trace_begin ('task_mod::rotate',itimer=itimer)
+  call trace_begin ('task_t%rotate',itimer=itimer)
+  call self%log ('rotate', 3)
   !-----------------------------------------------------------------------------
   ! Call timestep update procedure to fill the next time slot with values
   !-----------------------------------------------------------------------------
   if (io%verbose > 1) then
-    write (io_unit%log,'(a,7i10)')   'task_mod::rotate iit =', self%iit
+    write (io_unit%log,'(a,7i10)')   'task_t%rotate iit =', self%iit
     flush (io_unit%log)
   end if
   if (omp_lock%tasks) then
@@ -406,12 +374,12 @@ LOGICAL FUNCTION is_ahead_of (self, target)
   ! -- a negative nbor time signals an invalid (e.g. initial RT) state
 !  else if (nbtime < 0.0) then
 !    is_ahead_of = .false.
-  ! -- do not use a grace interval for different levels or for the first steps
-  else if (self%level /= target%level .or. self%istep < 3) then
+  ! -- do not use a grace interval for the first few steps
+  else if (self%istep < 3) then
     is_ahead_of = nbtime >= target%time
   ! -- use a grace interval that is fraction of the nbor time step
   else
-    is_ahead_of = nbtime + nbdtime*target%grace > target%time
+    is_ahead_of = nbtime + nbdtime*self%grace > target%time
   end if
   if (io_unit%verbose>1) then
     if (target%id==io%id_debug.or.io_unit%verbose>4) &
@@ -434,6 +402,7 @@ SUBROUTINE set (self, bits)
 !  call trace_begin ('task_t%set')
   !$omp atomic
   self%status = ior(self%status, bits)
+!write (io_unit%log,'(f12.6,3x,a,i6,z8)') wallclock(), 'set bit', self%id, bits
 !  call trace_end
 END SUBROUTINE
 
@@ -447,6 +416,7 @@ SUBROUTINE clear (self, bits)
 !  call trace_begin ('task_t%clear')
   !$omp atomic
   self%status = iand(self%status, not(bits))
+!write (io_unit%log,'(f12.6,3x,a,i6,z8)') wallclock(), 'clr bit', self%id, bits
 !  call trace_end
 END SUBROUTINE
 
@@ -546,11 +516,122 @@ FUNCTION overlaps (self, task)
   class(task_t):: self
   class(task_t):: task
   logical:: overlaps
+  integer:: itimer=0
   !.............................................................................
-  call trace%begin ('task_t%overlaps',2)
+  if (timer%detailed) &
+    call trace%begin ('task_t%overlaps', 2, itimer=itimer)
   overlaps = all(abs(distance(self,task)) <= 0.5_8*(self%size+task%size+self%ds+task%ds))
-  call trace%end()
+  if (timer%detailed) &
+    call trace%end (itimer)
 END FUNCTION overlaps
+
+!===============================================================================
+!> Check if point p overlaps with the internal region of self
+!===============================================================================
+FUNCTION overlaps_point (self, p)
+  class(task_t):: self
+  real(8):: p(3), d(3)
+  logical:: overlaps_point
+  !.............................................................................
+  call trace%begin ('task_t%overlaps', 2)
+  d = self%point_distance (self%position, p)
+  overlaps_point = all(abs(d) < self%size*0.5d0)
+  call trace%end ()
+END FUNCTION overlaps_point
+
+!===============================================================================
+!> Decide if another task is needed, if it needs_me, and if it should be
+!> downloaded (= used in one way or another to prepare the task for update)
+!===============================================================================
+SUBROUTINE nbor_relations (self, another, needed, needs_me, download)
+  class(task_t):: self
+  class(task_t), pointer:: another
+  logical:: needed, needs_me, download
+  integer, save:: itimer=0
+  !-----------------------------------------------------------------------------
+  if (timer%detailed) &
+    call trace%begin ('task_t%nbor_relations', 2, itimer=itimer)
+  !-----------------------------------------------------------------------------
+  ! task is real
+  !-----------------------------------------------------------------------------
+  if (self%rank == mpi%rank) then
+    !---------------------------------------------------------------------------
+    ! nbor is frozen
+    !---------------------------------------------------------------------------
+    if (another%is_set (bits%frozen)) then
+      needs_me = .false.
+      needed = .false.
+    !---------------------------------------------------------------------------
+    ! nbor is virtual
+    !---------------------------------------------------------------------------
+    else if (another%rank /= mpi%rank) then
+      call self%set(bits%boundary)
+      call self%clear(bits%internal)
+      ! -- use in check_ready(), but not in check_nbors()
+      needed = .true.
+      needs_me = .false.
+    !---------------------------------------------------------------------------
+    ! nbor is real
+    !---------------------------------------------------------------------------
+    else
+      ! -- use in check_ready(), and in check_nbors()
+      needed = .true.
+      needs_me = .true.
+    end if
+    !---------------------------------------------------------------------------
+    ! real tasks need guard zones
+    !---------------------------------------------------------------------------
+    download = .true.
+  !-----------------------------------------------------------------------------
+  ! task is virtual
+  !-----------------------------------------------------------------------------
+  else
+    !---------------------------------------------------------------------------
+    ! nbor is frozen
+    !---------------------------------------------------------------------------
+    if (another%is_set (bits%frozen)) then
+      needs_me = .false.
+      needed = .false.
+    !---------------------------------------------------------------------------
+    ! task is virtual, nbor is real
+    !---------------------------------------------------------------------------
+    else if (another%rank==mpi%rank) then
+      call self%set(bits%virtual)
+      call self%clear(bits%external)
+      ! -- don't use in check_ready(), use in check_nbors()
+      needed = .false.
+      needs_me = .true.
+    !---------------------------------------------------------------------------
+    ! task is virtual, nbor is virtual
+    !---------------------------------------------------------------------------
+    else
+      needed = .false.
+      needs_me = .false.
+    end if
+    !---------------------------------------------------------------------------
+    ! virtual tasks don't need guard zones
+    !---------------------------------------------------------------------------
+    download = .false.
+  end if
+  !-----------------------------------------------------------------------------
+  ! nbor is more than one level different; these are normally not needed,
+  ! and are only used in support considerations, so should not take part
+  ! in check_nbors() and check_ready(), but may be downloaded exceptionally
+  !-----------------------------------------------------------------------------
+  if (abs(another%level-self%level) > 1) then
+    needed = .false.
+    needs_me = .false.
+  end if
+  if (self%verbose > 2) &
+    write(io_unit%log,'(a,i6,i4,3x,3l1)') &
+      'set_nbor_relations: nbor, rank, IBV =', another%id, another%rank, &
+      another%is_set(bits%internal), &
+      another%is_set(bits%boundary), &
+      another%is_set(bits%virtual)
+  !-----------------------------------------------------------------------------
+  if (timer%detailed) &
+    call trace%end (itimer)
+END SUBROUTINE nbor_relations
 
 !===============================================================================
 !> Signed distance between the centers of two tasks in a possibly periodic box
@@ -565,11 +646,7 @@ FUNCTION distance (self, task) RESULT (out)
   real(8):: out(3)
   !.............................................................................
   call trace%begin ('task_t%distance',2)
-  out = self%position-task%position
-  ! account for periodic wrapping
-  where (self%periodic)
-    out = modulo(out+0.5_8*self%box,max(self%box,1d-30))-0.5_8*self%box
-  end where
+  out = self%point_distance (self%position, task%position)
   if (io%verbose>1 .and. (task%id==io%id_debug .or. self%id==io%id_debug)) then
     print *,'distance: self', self%position, self%id
     print *,'distance: task', task%position, task%id
@@ -577,6 +654,22 @@ FUNCTION distance (self, task) RESULT (out)
   end if
   call trace%end()
 END FUNCTION distance
+
+!===============================================================================
+!> Signed distance between two points in a possibly periodic box
+!===============================================================================
+FUNCTION point_distance (self, point1, point2) RESULT (out)
+  class(task_t):: self
+  real(8), intent(in):: point1(3), point2(3)
+  real(8):: out(3)
+  !.............................................................................
+  call trace%begin ('task_t%point_distance',2)
+  out = point1-point2
+  where (self%periodic .and. self%box /= 0d0)
+    out = modulo (out+0.5_8*self%box, self%box) - 0.5_8*self%box
+  end where
+  call trace%end()
+END FUNCTION point_distance
 
 SUBROUTINE pack (self, mesg)
   class(task_t):: self
@@ -629,5 +722,32 @@ FUNCTION debug (self, level)
   !-----------------------------------------------------------------------------
   debug = (io%verbose >= level) .or. (self%id == io%id_debug)
 END FUNCTION debug
+
+!===============================================================================
+SUBROUTINE task_info (self)
+  class(task_t):: self
+  !-----------------------------------------------------------------------------
+  write(io_unit%mpi,'(1x,a,40x,i6,2i4,2x,5x,2l1,2x,3f9.3)') &
+    'patch_t%task_info: id, BV, pos =', self%id, self%rank, self%level, &
+    self%is_set(bits%boundary), self%is_set(bits%virtual), self%position
+END SUBROUTINE task_info
+
+!===============================================================================
+SUBROUTINE log (self, label, level)
+  class(task_t):: self
+  character(len=*):: label
+  integer, optional:: level
+  !-----------------------------------------------------------------------------
+  if (io%task_logging > 0) then
+    if (present(level)) then
+      if (level > io%task_logging) &
+        return
+    end if
+    !$omp critical (tasklog_cr)
+    write(io_unit%task,'(f12.6,i4,i6,f12.6,4x,a)') &
+      wallclock(), omp%thread, self%id, self%time, trim(label)
+    !$omp end critical (tasklog_cr)
+  end if
+END SUBROUTINE log
 
 END MODULE task_mod

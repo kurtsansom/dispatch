@@ -45,16 +45,16 @@ SUBROUTINE init (self, nt)
     write (io%output, time_slices_params)
     write (io_unit%nml, time_slices_params)
     flush (io_unit%nml)
+    call lagrange%test
   end if
   !$omp end critical (input_cr)
   self%order = order
-  if (io%master) &
-    call lagrange%test
-  call trace%end
+  call trace%end()
 END SUBROUTINE init
 
 !===============================================================================
-!> Time interpolation
+!> Time interpolation.  mem() is assumed to contain nt time slices of a 3-D
+!> variable, with times consistent with the times produced by patch%timeslots()
 !===============================================================================
 SUBROUTINE interpolate (patch, mem, buffer)
   class(patch_t):: patch

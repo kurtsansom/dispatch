@@ -101,7 +101,7 @@ SUBROUTINE update (self, id, iit, dt, mem, mesh, lock)
     if (io%master) print *,id,'WARNING: setting time_order=0 in timestep%update'
     self%time_order=0
   end if
-  !call lock%set ('timestep')
+  call lock%set ('timestep')
   select case (self%time_order)
   case (0)
   case (1)
@@ -137,12 +137,12 @@ SUBROUTINE update (self, id, iit, dt, mem, mesh, lock)
       minval(mem(l(1):u(1),l(2):u(2),l(3):u(3),1,iit(nt  ),1)), &
       maxval(mem(l(1):u(1),l(2):u(2),l(3):u(3),1,iit(nt  ),1)), shape(mem)
   end if
-  !call lock%unset ('timestep')
+  call lock%unset ('timestep')
   call trace_end (itimer)
 END SUBROUTINE update
 
 !===============================================================================
-SUBROUTINE update_single (self, id, iit, dt, mem, dmem, mesh, time_order, lock)
+SUBROUTINE update_single (self, id, iit, dt, mem, dmem, mesh, lock, time_order)
   class(timestep_t):: self
   class(mesh_t):: mesh(:)
   type(lock_t):: lock

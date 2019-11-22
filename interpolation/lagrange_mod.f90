@@ -3,6 +3,7 @@
 !===============================================================================
 MODULE lagrange_mod
   USE io_mod
+  USE trace_mod
   implicit none
   private
   type, public:: lagrange_t
@@ -42,6 +43,9 @@ MODULE lagrange_mod
     procedure test
     procedure debug
     procedure init
+    procedure interpolate1d4
+    procedure interpolate1d8
+    generic:: interpolate1d => interpolate1d4, interpolate1d8
   end type
   type(lagrange_t), public:: lagrange
 CONTAINS
@@ -657,7 +661,7 @@ SUBROUTINE test (self)
   real(8), dimension(n):: x, y, w
   real(8):: x0, y0
   !-----------------------------------------------------------------------------
-  if (.not. io%master) return
+  if (.not. io_unit%master) return
   print *,'--------------- lagrange_t%test ------------------'
   x = 0.0
   y = 1.0
@@ -714,16 +718,49 @@ SUBROUTINE init (self)
   integer:: verbose=0, order=2
   namelist /lagrange_params/ verbose, order
   !-----------------------------------------------------------------------------
-  !$omp critical (lagrange_cr)
+  call trace%begin ('lagrange_t%init')
+  !$omp critical (input_cr)
   if (.not.self%initialized) then
     self%initialized = .true.
     rewind (io_unit%input)
     read (io_unit%input, lagrange_params, iostat=iostat)
-    if (io%master) write (io%output, lagrange_params)
+    if (io_unit%master) write (io_unit%output, lagrange_params)
     self%verbose = verbose
     self%order = order
   end if
-  !$omp end critical (lagrange_cr)
+  !$omp end critical (input_cr)
+  call trace%end ()
 END SUBROUTINE init
+
+!> =============================================================================
+!> Use default 1-D Lagrange interpolation
+!> =============================================================================
+FUNCTION interpolate1d4 (self,x0, n, x, y) RESULT(f)
+  class(lagrange_t):: self
+  integer:: n
+  real(kind=4):: x0, x(n), y(n), f
+  !.............................................................................
+  if (x0 < x(1)) then
+    f = y(1)
+  else if (x0 > x(n)) then
+    f = y(n)
+  else
+    f = self%sequence (x0, x, y)
+  end if
+END FUNCTION interpolate1d4
+
+FUNCTION interpolate1d8 (self,x0, n, x, y) RESULT(f)
+  class(lagrange_t):: self
+  integer:: n
+  real(kind=8):: x0, x(n), y(n), f
+  !.............................................................................
+  if (x0 < x(1)) then
+    f = y(1)
+  else if (x0 > x(n)) then
+    f = y(n)
+  else
+    f = self%sequence (x0, x, y)
+  end if
+END FUNCTION interpolate1d8
 
 END MODULE

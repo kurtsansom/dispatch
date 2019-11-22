@@ -62,12 +62,15 @@ SUBROUTINE output (self, experiment_name)
   if (io%out_time==0.0) then
     !$omp atomic read
     time = self%time
+    !$omp end atomic
   else if (io%time_derivs>0) then
     !$omp atomic read
     time = self%t(self%nt-2)
+    !$omp end atomic
   else
     !$omp atomic read
     time = self%out_next
+    !$omp end atomic
   end if
   !-----------------------------------------------------------------------------
   ! Set io%format
@@ -80,7 +83,13 @@ SUBROUTINE output (self, experiment_name)
   !-----------------------------------------------------------------------------
   ! Write a binary file with the data cube.
   !-----------------------------------------------------------------------------
-  write (filename,'(a,i5.5,"/",i5.5)') trim(io%outputname), self%iout, self%id
+  if (self%id < 100000) then
+    write (filename,'(a,i5.5,"/",i5.5)') trim(io%outputname), self%iout, self%id
+  else if (self%id < 1000000) then
+    write (filename,'(a,i5.5,"/",i6.6)') trim(io%outputname), self%iout, self%id
+  else
+    write (filename,'(a,i5.5,"/",i7.7)') trim(io%outputname), self%iout, self%id
+  end if
   n = u-l+1
   open (io_unit%data, file=trim(filename)//'.dat', form='unformatted', access='direct', &
     status='unknown', recl=kind(buf)*product(n))
@@ -93,8 +102,10 @@ SUBROUTINE output (self, experiment_name)
       !-------------------------------------------------------------------------
       !$omp atomic read
       it1 = self%iit(self%nt-2)
+      !$omp end atomic
       !$omp atomic read
       it2 = self%iit(self%nt-1)
+      !$omp end atomic
       if (io%out_time == 0.0) then
         buf = self%mem(l(1):u(1),l(2):u(2),l(3):u(3),iv,self%it,jo)
       !-------------------------------------------------------------------------
@@ -105,8 +116,10 @@ SUBROUTINE output (self, experiment_name)
       else
         !$omp atomic read
         t1 = self%t(it1)
+        !$omp end atomic
         !$omp atomic read
         t2 = self%t(it2)
+        !$omp end atomic
         pt = (time-t1)/max(t2-t1,1d-30)
         if (t2==t1) pt=0.0
         qt = 1.0-pt
@@ -118,7 +131,8 @@ SUBROUTINE output (self, experiment_name)
         write (io_unit%log,'(1x,a,2i5,i3,1p,3e11.3)') &
           trim(filename),iv,it1,jo,minval(buf),maxval(buf),pt
       write (io_unit%data,rec=iv+(jo-1)*self%nv) buf
-      if (io%verbose>1 .and. iv==self%idx%d) print *,'rho minmax',minval(buf), maxval(buf)
+      if (io%verbose>1 .and. iv==self%idx%d) &
+        print *,'rho minmax',minval(buf), maxval(buf)
       deallocate (buf)
     end do
   end do
@@ -201,7 +215,13 @@ SUBROUTINE input (self, ok)
   !---------------------------------------------------------------------------
   ! Read the binary file with the data cube.
   !---------------------------------------------------------------------------
-  write (filename,'(a,"/",i5.5,"/",i5.5)') trim(io%inputdir), self%restart, self%id
+  if (self%id < 100000) then
+    write (filename,'(a,i5.5,"/",i5.5)') trim(io%inputdir), self%restart, self%id
+  else if (self%id < 1000000) then
+    write (filename,'(a,i5.5,"/",i6.6)') trim(io%inputdir), self%restart, self%id
+  else
+    write (filename,'(a,i5.5,"/",i7.7)') trim(io%inputdir), self%restart, self%id
+  end if
   inquire (file=trim(filename)//'.dat', exist=ok)
   if (.not.ok) then
     call io%abort('MK input_legacy: no .dat file'//trim(filename)//'.dat')
