@@ -47,7 +47,11 @@ MODULE mpi_io_mod
   !-----------------------------------------------------------------------------
   type, public, extends(dll_node_t):: iwrite_t
     integer:: req, handle, words
+#ifdef MPI
     integer(kind=MPI_OFFSET_KIND):: pos
+#else
+    integer(8):: pos
+#endif
     real, dimension(:,:,:), pointer:: buffer3 => null()
     real, dimension(:,:,:,:), pointer:: buffer => null()
   end type
@@ -121,14 +125,19 @@ SUBROUTINE init (self)
   namelist /mpi_io_params/ verbose, direct
   !-----------------------------------------------------------------------------
   call trace%begin ('mpi_io_t%init')
-  !$omp critical (input_cr)
+  !-----------------------------------------------------------------------------
+  ! Note that when this is called from mpi_io_t%init(), it is already in a
+  ! critical (input_cr) region, so must either use a different name, or no
+  ! critical region
+  !-----------------------------------------------------------------------------
+  !$omp critical (mpi_io_cr)
   if (first_time) then
     first_time = .false.
     rewind (io%input)
     read (io%input, mpi_io_params, iostat=iostat)
     if (io%master) write (io%output, mpi_io_params)
   end if
-  !$omp end critical (input_cr)
+  !$omp end critical (mpi_io_cr)
   !$omp critical (iwrite_cr)
   if (self%iwrite_list%first_time) then
     self%iwrite_list%first_time = .false.
@@ -442,7 +451,12 @@ SUBROUTINE check (self)
   class(iwrite_list_t):: self
   class(dll_node_t), pointer:: node, next
   class(iwrite_t), pointer:: item
+#ifdef MPI
   integer:: status(MPI_STATUS_SIZE), err
+#else
+  integer:: status(8), err
+  integer:: MPI_REAL=1
+#endif
   integer, save:: itimer=0, nprint=3
   integer:: done, omp_get_thread_num, rec
   logical:: ok
@@ -493,6 +507,7 @@ SUBROUTINE check (self)
             write (io_unit%direct, rec=rec) item%buffer
             deallocate (item%buffer)
           else if (associated(item%buffer3)) then
+#ifdef MPI
             if (mp%mode == MPI_THREAD_MULTIPLE) then
               call MPI_File_write_at (item%handle, item%pos, item%buffer3, &
                                       item%words, MPI_REAL, status, err)
@@ -502,10 +517,12 @@ SUBROUTINE check (self)
                                       item%words, MPI_REAL, status, err)
               !$omp end critical (mpi_cr)
             end if
+#endif
             call io%assert (err==0, 'MPI_File_write_at: error code non-zero')
             deallocate (item%buffer3)
             nullify (item%buffer3)
           else
+#ifdef MPI
             if (mp%mode == MPI_THREAD_MULTIPLE) then
               call MPI_File_write_at (item%handle, item%pos, item%buffer, &
                                       item%words, MPI_REAL, status, err)
@@ -515,6 +532,7 @@ SUBROUTINE check (self)
                                       item%words, MPI_REAL, status, err)
               !$omp end critical (mpi_cr)
             end if
+#endif
             call io%assert (err==0, 'MPI_File_write_at: error code non-zero')
             deallocate (item%buffer)
           end if

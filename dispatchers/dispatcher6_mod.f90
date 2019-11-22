@@ -113,25 +113,15 @@ SUBROUTINE init (self, name)
   class(link_t), pointer:: link
   logical:: queue_unpack, send_priv, recv_active, recv_priv
   integer:: iostat
-  namelist /dispatcher6_params/ verbose, max_stalled, retry_stalled, do_delay, &
-    queue_unpack, send_priv, recv_active, recv_priv
+  namelist /dispatcher6_params/ verbose, max_stalled, retry_stalled, do_delay
   !-----------------------------------------------------------------------------
   ! An optional namelist can be used to turn debugging on
   !-----------------------------------------------------------------------------
   call trace%begin('dispatcher6_t%init')
   call mpi_mesg%init
-  recv_active  = .true.
-  queue_unpack = .true.
-  recv_priv    = .true.
-  send_priv    = .true.
-  rewind (io%input); read(io%input, dispatcher6_params, iostat=iostat)
-  mpi_mesg%recv_active  = recv_active
-  mpi_mesg%queue_unpack = queue_unpack
-  mpi_mesg%recv_priv    = recv_priv
-  mpi_mesg%send_priv    = send_priv
-  if (io%master) then
-    if (io%master) write (*, dispatcher6_params)
-  end if
+  rewind (io%input)
+  read(io%input, dispatcher6_params, iostat=iostat)
+  write (io%output, dispatcher6_params)
   call trace_end
 END SUBROUTINE init
 
@@ -581,6 +571,7 @@ SUBROUTINE unpack (self, mesg, link)
   if (.not. failed) then
     !$omp atomic
     mpi_mesg%n_unpk = mpi_mesg%n_unpk+1
+    !$omp end atomic
     !---------------------------------------------------------------------------
     ! If the boundary+swap bits are set, this is a task that has just changed
     ! rank, and it needs to have its nbor relations re-initialized. This includes
@@ -629,6 +620,7 @@ SUBROUTINE startup (task_list)
   class(task_t), pointer:: task
   !-----------------------------------------------------------------------------
   call trace%begin ('dispatcher6::startup')
+  call task_list%info
   !-----------------------------------------------------------------------------
   ! Initialize the task message, and request the first package
   !-----------------------------------------------------------------------------
@@ -657,7 +649,7 @@ SUBROUTINE startup (task_list)
   ! This may not be needed, but might avoid initial load balance excursions
   !-----------------------------------------------------------------------------
   call mpi%barrier ('task_list%execute')
-  call trace%end
+  call trace%end()
 END SUBROUTINE startup
 
 !===============================================================================

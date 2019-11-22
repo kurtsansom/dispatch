@@ -14,6 +14,7 @@ MODULE gpatch_mod
   USE omp_timer_mod
   USE bits_mod
   USE data_io_mod
+  USE guard_zones_mod
   USE download_mod
   USE data_hub_mod
   USE validate_mod
@@ -24,7 +25,7 @@ MODULE gpatch_mod
   type, public, extends(patch_t):: gpatch_t
     type(initial_t):: initial
     type(data_hub_t):: data_hub
-    type(list_t), pointer:: task_list => null()
+    class(list_t), pointer:: task_list => null()
     real(8):: d0
   contains
     procedure, nopass:: cast2gpatch
@@ -56,7 +57,7 @@ FUNCTION cast2gpatch (task) RESULT(gpatch)
   gpatch => task
   class default
   nullify(gpatch)
-  call io%abort ('patch_t%cast: failed to cast a task to patch_t')
+  call io%abort ('gpatch_t%cast: failed to cast a task to patch_t')
   end select
 END FUNCTION cast2gpatch
 
@@ -67,7 +68,9 @@ SUBROUTINE init_task_list (self, task_list)
   class(gpatch_t):: self
   class(list_t), pointer:: task_list
   !.............................................................................
+  call trace%begin ('gpatch_t%init_task_list')
   self%task_list => task_list
+  call trace%end()
 END SUBROUTINE init_task_list
 
 !===============================================================================
@@ -116,9 +119,13 @@ SUBROUTINE init (self)
   logical                           :: ok
   real(kind=KindScalarVar), pointer :: d(:,:,:)
   !-----------------------------------------------------------------------------
+  if (self%is_set(bits%frozen)) &
+    return
+  print *, 'gpath_t%init: time =', self%time
   call trace%begin ('gpatch_t%init')
   call self%initial%init (self%kind, real(self%gamma))
-  call self%patch_t%init
+  call data_io%init (self)
+  call guard_zones%init
   !-----------------------------------------------------------------------------
   ! Try reading a restart snapshot.
   !-----------------------------------------------------------------------------
@@ -130,13 +137,18 @@ SUBROUTINE init (self)
     !---------------------------------------------------------------------------
     ! Make sure the default time for patches with IC values is zero, to ensure 
     ! boundary tasks are not considered ready for updating until their virtual
-    ! task nbors have been updated.
+    ! task nbors have been updated, in evolved cases.
     !---------------------------------------------------------------------------
     restart_time = 0.0
-    self%time = 0.0
     self%mem = 0.0
     ff => self%mem(:,:,:,:,1,1)
     call self%initial%condition (self%mesh, ff, self%idx)
+    !---------------------------------------------------------------------------
+    ! patch_t%setup sets time = -1, to prevent downloading until nbors have been
+    ! initialized, and their time has been set to 0.0 here
+    !---------------------------------------------------------------------------
+    self%time = 0.0
+    self%t = 0.0
   end if
   !-----------------------------------------------------------------------------
   ! If restart succeeded for some patch, use it to set time and output cadence.
@@ -169,7 +181,7 @@ SUBROUTINE counter_update (self)
   call trace%begin ('gpatch_t%counter_update')
   !$omp atomic
   timer%n_update = timer%n_update + product(self%n)
-  call trace%end
+  call trace%end()
 END SUBROUTINE counter_update
 
 !===============================================================================
@@ -181,11 +193,15 @@ SUBROUTINE dnload (self, only)
   integer, optional:: only
   !-----------------------------------------------------------------------------
   call trace%begin ('gpatch_t%dnload')
-  if (self%use_data_hub) then
-    call self%data_hub%update (self%link, only=only)
-  else
-    call download%download_link (self%link, only=only)
+!if (self%id==1) print'("dnload",1p,22e9.1)',self%mem(10,1:15,15,5,1,1)-self%mem(10,10,10,5,1,1)
+  if (self%is_clear (bits%frozen)) then
+    if (self%use_data_hub) then
+      call self%data_hub%update (self%link, only=only)
+    else
+      call download%download_link (self%link, only=only)
+    end if
   end if
+!if (self%id==1) print'("dnload",1p,22e9.1)',self%mem(10,1:15,15,5,1,1)-self%mem(10,10,10,5,1,1)
   call trace%end()
 END SUBROUTINE dnload
 

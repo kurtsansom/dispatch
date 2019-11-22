@@ -29,6 +29,7 @@ MODULE mpi_mod
   USE omp_timer_mod
   USE io_unit_mod
   implicit none
+  private
 #ifdef MPI
   include 'mpif.h'              ! some systems require this instead of 'use mpi'
 #endif
@@ -41,13 +42,34 @@ MODULE mpi_mod
   integer:: output=2
   logical:: first_time = .true.
   !-----------------------------------------------------------------------------
-  ! Object that returns the most important MPI parameters
+  ! Object that support atomic incremental counting across MPI ranks.  The
+  ! counter value %v reflects the actual counter value, but only at the very
+  ! moment when it was upated, not at the moment when it happens to be accessed.
   !-----------------------------------------------------------------------------
-  type mpi_t
+  type, public:: mpi_counter_t
+    integer:: window
+    integer(8):: i=0            ! shared window value
+    integer(8):: value=0        ! actual counter value, after update
+  contains
+    procedure, private:: init4
+    procedure, private:: init8
+    generic:: init => init4, init8
+    procedure, private:: reset4
+    procedure, private:: reset8
+    generic:: reset => reset4, reset8
+    procedure, private:: update4
+    procedure, private:: update8
+    generic:: update => update4, update8
+  end type
+  !-----------------------------------------------------------------------------
+  ! Object that contains the most important MPI parameters
+  !-----------------------------------------------------------------------------
+  type, public:: mpi_t
     integer:: size=1, rank=0, comm, verbose=0
     integer:: mode
     logical:: master
     logical:: ok = .false.
+    type(mpi_counter_t):: id, file_size
   contains
     procedure:: init
     procedure:: barrier => barrier_
@@ -57,9 +79,7 @@ MODULE mpi_mod
     procedure:: end => end_mpi
     procedure, nopass:: delay
   end type
-  type(mpi_t):: mpi
-PRIVATE
-PUBLIC mpi_t, mpi
+  type(mpi_t), public:: mpi
 CONTAINS
 
 !===============================================================================
@@ -110,6 +130,9 @@ SUBROUTINE init (self, mpi_dims, dims)
   self%comm   = mpi%comm
   self%master = mpi%master
   self%ok     = mpi%ok
+  !-----------------------------------------------------------------------------
+  call mpi%id%init (1)
+  call mpi%file_size%init (0_8)
   !-----------------------------------------------------------------------------
   ! Make sure output from startup is finished
   !-----------------------------------------------------------------------------
@@ -212,10 +235,10 @@ SUBROUTINE end_mpi (self, label)
     end if
   end if
 #ifdef MPI
-  write (io_unit%mpi,*) 'calling MPI_Finalize'
+  write (io_unit%mpi,*) self%rank, wallclock(), 'calling MPI_Finalize'
   flush (io_unit%mpi)
   call MPI_Finalize (mpi_err)
-  write (io_unit%mpi,*) 'returned from MPI_Finalize'
+  write (io_unit%mpi,*) self%rank, wallclock(), 'returned from MPI_Finalize'
   flush (io_unit%mpi)
 #endif
   !call exit        ! avoid "stop" which may produce one output line per process
@@ -395,6 +418,147 @@ SUBROUTINE delay (ms)
   do while ((wallclock()-wc) < 1e-3*ms)
   end do
 END SUBROUTINE delay
+
+!===============================================================================
+!> Create and initialize a counter to value = n. NOTE: This is COLLECTIVE call!
+!===============================================================================
+SUBROUTINE init4 (self, n)
+  class(mpi_counter_t):: self
+  integer:: n
+  !.............................................................................
+#ifdef MPI
+  integer(kind=MPI_ADDRESS_KIND):: nbytes=8
+  integer:: mpi_err
+  !----------------------------------------------------------------------------
+  self%i = n
+  call MPI_Win_create (self%i, nbytes, 8, MPI_INFO_NULL, MPI_COMM_WORLD, &
+                       self%window, mpi_err)
+  call mpi%assert ('MPI_Win_create', mpi_err)
+#endif
+END SUBROUTINE init4
+
+!===============================================================================
+!> Create and initialize a counter to value = n. NOTE: This is COLLECTIVE call!
+!===============================================================================
+SUBROUTINE init8 (self, n)
+  class(mpi_counter_t):: self
+  integer(8):: n
+  !.............................................................................
+#ifdef MPI
+  integer(kind=MPI_ADDRESS_KIND):: nbytes=8
+  integer:: mpi_err
+  !----------------------------------------------------------------------------
+  self%i = n
+  call MPI_Win_create (self%i, nbytes, 8, MPI_INFO_NULL, MPI_COMM_WORLD, &
+                       self%window, mpi_err)
+  call mpi%assert ('MPI_Win_create', mpi_err)
+#endif
+END SUBROUTINE init8
+
+!===============================================================================
+!> Reset the counter to n
+!===============================================================================
+SUBROUTINE reset4 (self, n)
+  class(mpi_counter_t):: self
+  integer:: n, i
+  !.............................................................................
+  i = self%update(0)
+  i = self%update(n-i)
+END SUBROUTINE reset4
+
+!===============================================================================
+!> Reset the counter to n
+!===============================================================================
+SUBROUTINE reset8 (self, n)
+  class(mpi_counter_t):: self
+  integer(8):: n, i
+  !.............................................................................
+  i = self%update(0_8)
+  i = self%update(n-i)
+END SUBROUTINE reset8
+
+!===============================================================================
+!> Add a value i to the counter on master.  If the value reaches 0, return 0,
+!> while resetting the counter to n.  Allow both 4-byte and 8-byte arguments.
+!===============================================================================
+FUNCTION update4 (self, i, n) RESULT (j)
+  class(mpi_counter_t):: self
+  integer:: i, j
+  integer, optional:: n
+  !.............................................................................
+  if (present(n)) then
+    j= update8 (self, int(i,kind=8), int(n,kind=8))
+  else
+    j= update8 (self, int(i,kind=8))
+  end if
+END FUNCTION update4
+!===============================================================================
+FUNCTION update8 (self, i, n) RESULT (j)
+  class(mpi_counter_t):: self
+  integer(8):: i, j
+  integer(8), optional:: n
+  !.............................................................................
+  integer:: master=0, mpi_err
+#ifdef MPI
+  integer(kind=MPI_ADDRESS_KIND):: offset=0
+  !-----------------------------------------------------------------------------
+  if (io_unit%verbose > 0) &
+    write (io_unit%log,'(a,2(2x,3i4))') &
+      'mpi_counter_t%update(1): incr, sum, rank, size =', &
+      i, self%i, mpi%rank, mpi%size
+  if (mpi%mode == MPI_THREAD_MULTIPLE) then
+    call accumulate (i)
+  else
+    !$omp critical (mpi_cr)
+    call accumulate (i)
+    !$omp end critical (mpi_cr)
+  end if
+  !$omp atomic write
+  self%value = j + i
+  if (i+j==0) then
+    if (present(n)) then
+      self%i = n
+    end if
+  end if
+  return
+contains
+  !-----------------------------------------------------------------------------
+  subroutine accumulate (i)
+  integer(8):: i
+  !$omp critical (mpi_win_cr)
+  call MPI_Win_lock (MPI_LOCK_EXCLUSIVE, master, 0, self%window, mpi_err)
+  call add(i)
+  call MPI_Win_flush (master, self%window, mpi_err)
+  !-----------------------------------------------------------------------------
+  ! The window value is incremented by "i", but the return value "j" reflects
+  ! the value of the window variable BEFORE the update, and this is what the
+  ! exposed value %i should reflect, on all ranks
+  !-----------------------------------------------------------------------------
+  if (io_unit%verbose > 0) &
+    write (io_unit%log,'(a,2(2x,3i4))') &
+      'mpi_counter_t%update(2):  val, sum, rank, size =', &
+      j, self%i, mpi%rank, mpi%size
+  call MPI_Win_unlock (master, self%window, mpi_err)
+  !$omp end critical (mpi_win_cr)
+  end subroutine accumulate
+  !-----------------------------------------------------------------------------
+  ! The MPI call returns, in the j argument, the value of the counter in the
+  ! window, BEFORE the update.
+  !-----------------------------------------------------------------------------
+  subroutine add (i)
+  integer(8):: i
+  call MPI_Get_accumulate (i, 1, MPI_INTEGER8, &
+                           j, 1, MPI_INTEGER8, master, offset, &
+                              1, MPI_INTEGER8, MPI_SUM, self%window, mpi_err)
+  call mpi%assert ('MPI_Accumulate', mpi_err)
+  end subroutine add
+#else
+  !$omp atomic capture
+  j = self%i
+  self%i = self%i + i
+  !$omp end atomic
+#endif
+END FUNCTION update8
 
 END MODULE mpi_mod
 

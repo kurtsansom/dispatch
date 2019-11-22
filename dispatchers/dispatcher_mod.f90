@@ -16,8 +16,9 @@ MODULE dispatcher_mod
   USE dispatcher6_mod
   USE mpi_mesg_mod
   USE data_io_mod
-  USE gpatch_mod
-  USe list_mod
+  USE experiment_mod
+  USE list_mod
+  USE task_mesg_mod
   implicit none
   private
   type, public:: dispatcher_t
@@ -50,56 +51,22 @@ SUBROUTINE init (self)
   namelist /dispatcher_params/ method, verbose, test, test_seconds
   !-----------------------------------------------------------------------------
   call trace%begin ('dispatcher_t%init')
-  rewind (io%input); read (io%input, dispatcher_params, iostat=iostat)
-  if (io%master) write (io%output, dispatcher_params)
+  rewind (io%input)
+  read (io%input, dispatcher_params, iostat=iostat)
+  write (io%output, dispatcher_params)
+  !-----------------------------------------------------------------------------
   select case (method)
   case (0)
     self%method => method0
-    !---------------------------------------------------------------------------
-    ! By default this method uses the most optimal send and receive procedures,
-    ! which means each thread takes care of its own sent_list, and each thread
-    ! checks a dedicated set of tasks for incoming messages.  Non-default
-    ! choices can be made with the dispatcher0_params namelist
-    !---------------------------------------------------------------------------
     call dispatcher0%init
   case (1)
     self%method => method1
-    dispatcher1%verbose = verbose
-    !---------------------------------------------------------------------------
-    ! This method uses send_priv=.true. to make each thread takes care of sending.
-    ! It uses the check_active() procedure in task_mesg_mod to actively check
-    ! for incoming messages.  Since this is done by only the master thread,
-    ! there is no point in making an unpack queue.
-    !---------------------------------------------------------------------------
-    mpi_mesg%send_priv    = .true.
-    mpi_mesg%recv_active  = .true.
-    mpi_mesg%recv_priv    = .false.
-    mpi_mesg%queue_unpack = .false.
   case (2)
     self%method => method2
-    !---------------------------------------------------------------------------
-    ! This method uses send_priv=.true. to make each thread takes care sending.
-    ! It uses the check_active() procedure in task_mesg_mod to actively check
-    ! for incoming messages.  Since this is done by only the master thread,
-    ! there is no point in making an unpack queue.
-    !---------------------------------------------------------------------------
-    mpi_mesg%send_priv    = .true.
-    mpi_mesg%recv_active  = .true.
-    mpi_mesg%recv_priv    = .false.
-    mpi_mesg%queue_unpack = .false.
   case (3)
     self%method => method3
   case (4)
     self%method => method4
-    !---------------------------------------------------------------------------
-    ! This method uses send_priv=.false., collecting a list of sent messages in
-    ! the shared mpi_mesg%sent_list.  No other mpi_mesg attribute is relevant, 
-    ! but for good measure we nevertheless set them accordingly.
-    !---------------------------------------------------------------------------
-    mpi_mesg%send_priv    = .false.
-    mpi_mesg%recv_priv    = .false.
-    mpi_mesg%recv_active  = .true.
-    mpi_mesg%queue_unpack = .false.
   case (5)
     self%method => method5
   case (6)
@@ -107,6 +74,10 @@ SUBROUTINE init (self)
   case default
     call io%abort ('unknown method in dispatcher_mod')
   end select
+  !-----------------------------------------------------------------------------
+  ! Pass the method choice on to task_method_t, in case it has an impact
+  !-----------------------------------------------------------------------------
+  task_mesg%method = method
   call mpi_mesg%init
   call trace%end()
 END SUBROUTINE init
@@ -119,27 +90,21 @@ SUBROUTINE execute (self, task_list)
   class(list_t), pointer:: list
   class(link_t), pointer:: link
   !-----------------------------------------------------------------------------
+  call trace%begin ('dispatcher_t%execute')
   task_list%method = method
   task_list%dispatcher = .true.
   if (test) call set_io
   !-----------------------------------------------------------------------------
-  ! Store a copy of the task list pointer in each task (generically in gpatch_t)
+  ! Reset task_list status to re-establish nbor relations, checking consistency
   !-----------------------------------------------------------------------------
-  list => task_list
-  link => task_list%head
-  do while (associated(link))
-    associate (task=>link%task)
-    select type (task)
-    class is (gpatch_t)
-    call task%init_task_list (list)
-    end select
-    end associate
-    link => link%next
-  end do
+  call task_list%reset_status (check=.true.)
+  call task_list%init_task_list_pointers (task_list)
+  call task_list%info
   !-----------------------------------------------------------------------------
   ! Call the selected dispatcher method
   !-----------------------------------------------------------------------------
   call self%method (task_list)
+  call trace%end()
 END SUBROUTINE execute
 
 !===============================================================================

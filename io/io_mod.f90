@@ -37,6 +37,9 @@ MODULE io_mod
     logical:: do_stop=.false.
     logical:: guard_zones=.false.
     logical:: namelist_errors=.true.
+    logical:: needs_check=.false.
+    logical:: halt=.false.      ! used in data_io and amr_io
+    integer:: task_logging=0
     integer:: log_sent=0
     integer:: time_derivs=0
     integer:: id_debug=0
@@ -60,6 +63,7 @@ MODULE io_mod
     real:: courant=0.0
     real:: dmin=1.0
     real:: dmax=1.0
+    real:: gb_out=0.0
   contains
     procedure:: init
     procedure:: debug
@@ -75,7 +79,7 @@ MODULE io_mod
   end type
   character(len=64), save:: inputname, outputname
   type(io_t), public:: io
-  public mch, io_unit, stderr, stdout
+  public mch, io_unit, stderr, stdout, stdin
 CONTAINS
 
 !===============================================================================
@@ -103,7 +107,7 @@ SUBROUTINE init (self, name)
   character(len=64), save:: top='../../'
   character(len=8), save:: method='legacy'
   integer, save:: id_debug=-1, restart=-9, format=0, time_derivs=0, nml_version=1
-  integer, save:: log_sent=0
+  integer, save:: log_sent=0, task_logging=0
   logical, save:: first_time=.true., omp_trace=.false., do_validate=.false.
   logical, save:: do_debug=.false., do_trace=.false., do_output=.false., exist, &
     do_legacy=.false., do_flags=.false., do_direct=.false., guard_zones=.false.
@@ -111,17 +115,19 @@ SUBROUTINE init (self, name)
   namelist /io_params/ verbose, do_debug, do_trace, do_output, do_flags, &
     do_validate, do_legacy, do_direct, levelmax, omp_trace, id_debug, top, &
     datadir, inputdir, method, restart, format, guard_zones, time_derivs, log_sent, &
-    namelist_errors, nml_version
+    task_logging, namelist_errors, nml_version
   real:: test
   integer:: iostat
   character(len=120):: ids = &
   '$Id$ io/io_mod.f90'
   !.............................................................................
-  if (mpi%master) print'(1x,a)', trim(ids)
-  self%master = self%master .and. (mpi%rank==0)
-  io%master = self%master
+  if (mpi%master) then
+    print'(a)', self%hl
+    print'(a)', trim(ids)
+  end if
+  self%master = mpi%master
+  io%master   = mpi%master
   !$omp parallel
-  io_unit%master = io_unit%master.and.self%master
   !$omp end parallel
   !-----------------------------------------------------------------------------
   ! I/O unit numbers, for convenience and backwards compatibility.  All other
@@ -144,8 +150,10 @@ SUBROUTINE init (self, name)
       self%inputname = 'input.nml'
       self%rundir = trim(datadir)//self%sep                     ! data/
     end if
-    self%outputname = self%rundir                               ! compatibility
     call os%mkdir (trim(self%rundir))
+    self%outputname = self%rundir                               ! compatibility
+    write (filename,'(a,i5.5,"/")') trim(self%outputname), 0
+    call os%mkdir (trim(filename))
     !---------------------------------------------------------------------------
     open (io_unit%nml, file=trim(self%rundir)//'params.nml', form='formatted', status='unknown')
     open (io_unit%hash, file=trim(self%rundir)//'hash.log', form='formatted', status='unknown')
@@ -157,17 +165,31 @@ SUBROUTINE init (self, name)
     rewind (io_unit%input)
     read (io_unit%input, io_params, iostat=iostat)
     if (iostat > 0) call self%namelist_warning ('io_params')
-    write (stdout,io_params)
     if (mpi%master .and. .not. do_validate) then
       print'(a,i4)', ' n_socket =', omp%nsockets
       print'(a,i4)', '   n_core =', omp%ncores
       print'(a,i4)', ' n_thread =', omp_nthreads
     end if
+    self%task_logging = task_logging
     self%format = format
     self%nml_version = nml_version
     self%inputdir = inputdir
     call ensure_dirname (self%inputdir)
     call ensure_dirname (self%outputname)
+    !---------------------------------------------------------------------------
+    ! OMP specific setup; need to set io_unit in all threadprivate instances
+    !---------------------------------------------------------------------------
+    !$omp parallel
+    !$omp critical (open_cr)
+    if (omp%master) then
+      io_unit%verbose = verbose
+    else
+      io_unit%verbose = -2
+    end if
+    io_unit%rundir = self%rundir
+    io_unit%inputdir = self%inputdir    
+    io_unit%outputname = self%outputname
+    io_unit%do_validate = do_validate
     !---------------------------------------------------------------------------
     ! Log-file names:
     ! -- io_unit%output     : stdout on rank 0, same as io_unit%mpi on rank 1-n
@@ -178,34 +200,18 @@ SUBROUTINE init (self, name)
     !---------------------------------------------------------------------------
     call open_rank_file (io_unit%queue     , ".nq"   , 'formatted')
     call open_rank_file (io_unit%mpi       , ".log"  , 'formatted')
+    call open_rank_file (io_unit%task      , ".task" , 'formatted')
     call open_rank_file (io_unit%dbg       , ".dbg"  , 'unformatted')
     call open_rank_file (io_unit%dump      , ".dump" , 'unformatted')
     call open_rank_file (io_unit%validate  , ".val"  , 'unformatted')
     call open_rank_file (io_unit%dispatcher, ".disp" , 'formatted')
     !---------------------------------------------------------------------------
-    ! OMP specific setup; need to set io_unit in all threadprivate instances
+    ! Open MPI rank and OMP thread-specific log files if omp_trace is true,
+    ! else fall back to io_unit%log being just MPI rank-specific
     !---------------------------------------------------------------------------
-    !$omp parallel
-    !$omp critical (open_cr)
-    io_unit%rundir = self%rundir
-    io_unit%inputdir = self%inputdir    
-    io_unit%outputname = self%outputname
-    if (omp%master) then
-      io_unit%verbose = verbose
-    else
-      io_unit%verbose = -2
-    end if
-    !---------------------------------------------------------------------------
-    ! Open MPI rank and OMP thread-specific log files, if omp_trace is true,
-    ! else fall back io_unit%log being just MPI rank-specific
-    !---------------------------------------------------------------------------
-    io_unit%do_validate = do_validate
-    write (filename,'(a,i5.5,"/")') trim(io%outputname), 0
-    call os%mkdir (trim(filename))
     if (omp_trace .and. omp%nthreads>1) then
-      io_unit%log = 110+omp%mythread()
-      write (filename,'(a,"thread_",i5.5,"_",i3.3,".log")') trim(self%outputname), mpi%rank, omp%thread
-      open (unit=io_unit%log, file=filename, form='formatted', status='unknown')
+      io_unit%log = 110 + omp%mythread()
+      call open_rank_file (io_unit%log     , ".log"  , 'formatted', omp%mythread())
     else
       io_unit%log = io_unit%mpi
     end if
@@ -216,15 +222,21 @@ SUBROUTINE init (self, name)
       io_unit%output = io_unit%mpi
     end if
     !$omp end critical (open_cr)
+    io_unit%master = io%master .and. omp%master
+    write (io_unit%log,'(a,2i4,3l4)') &
+      'io_mod::init io_unit%log, omp%thread, io_unit%master, io_unit%verbose:', &
+      io_unit%log, omp%thread, io_unit%master, io_unit%verbose
     !$omp end parallel
+    !---------------------------------------------------------------------------
+    ! stdout is the same as the the %output unit, and is not threadprivate
+    !---------------------------------------------------------------------------
+    stdout = io_unit%output
+    write (stdout,io_params)
     !---------------------------------------------------------------------------
     ! Backwards compatibility
     !---------------------------------------------------------------------------
     io%output    = io_unit%output
     io%data_unit = io_unit%data
-    write (io_unit%log,'(a,i4,2l4)') &
-      'io_mod::init io_unit%log, io_unit%master, io_unit%verbose:', &
-      io_unit%log, io_unit%master, io_unit%verbose
     write(io%output,*) 'logfile:', filename
     write(io%output,*) '======================================================================='
     write(io%output,*) 'NOTE: Reading parameters from '//trim(self%inputname)
@@ -265,11 +277,22 @@ contains
     l = len(trim(s))
     if (s(l:l) /= '/') s(l+1:l+1)='/'
   end subroutine
-  subroutine open_rank_file (unit, ext, form)
+  subroutine open_rank_file (unit, ext, form, thread)
     integer:: unit
+    integer, optional:: thread
     character(len=*):: ext, form
+    character(len=64):: filename
     !-----------------------------------------------------------------------------
-    write (filename,'(a,"rank_",i5.5,a)') trim(self%outputname), mpi%rank, ext
+    if (present(thread)) then
+      open (unit=unit, file=trim(filename), form=form, status='unknown')
+      write (io_unit%threadbase,'(a,"thread_",i5.5,"_",i3.3)') &
+        trim(self%outputname), mpi%rank, thread
+      filename = trim(io_unit%threadbase)//ext
+    else
+      write (io_unit%rankbase,'(a,"rank_",i5.5)') &
+        trim(self%outputname), mpi%rank
+      filename = trim(io_unit%rankbase)//ext
+    end if
     open (unit=unit, file=trim(filename), form=form, status='unknown')
   end subroutine
 END SUBROUTINE init
@@ -514,42 +537,71 @@ SUBROUTINE assert (ok, message)
 END SUBROUTINE assert
 
 !===============================================================================
-!> Interface to mpi%abort, for modules that do not otherwise USE mpi_mod
+!> Print a centered message, preceded and followed by full === lines, unless the
+!> first character is a '-', in which case print a singe ---- message ---- line
 !===============================================================================
-SUBROUTINE header (message)
-  character(len=*):: message
+SUBROUTINE header (str, left)
+  character(len=*):: str
+  integer, optional:: left
   !.............................................................................
   call timer%print()
   if (io%master) then
-    call line('')
-    call line(message)
-    call line('')
+    if (str(1:1) == '-') then
+      call line (str, left)
+    else
+      call line ('=', left)
+      call line (str, left)
+      call line ('=', left)
+    end if
   end if
 !===============================================================================
+!> Print a centered or left adjusted message, surrounded by repeated c chars
+!===============================================================================
 contains
-  subroutine line (s)
+  subroutine line (s, left)
     character(len=*):: s
+    integer, optional:: left
+    !...........................................................................
+    character(len=1):: c
     integer, parameter:: w=80
     character(len=w):: buf
     integer:: i, j, l1, l2, l
-    !-----------------------------------------------------------------------------
+    !---------------------------------------------------------------------------
     l = len_trim(s)
-    l1 = (w-l)/2-1
-    l2 = l1 + l + 1
-    j = 1
+    !---------------------------------------------------------------------------
+    ! Optionally, use a fixed left start, else center
+    !---------------------------------------------------------------------------
+    if (s(1:1)=='-') then
+      c = '-'
+      j = 2
+    else
+      c = '='
+      j = 1
+    end if
+    if (present(left)) then
+      l1 = left
+    else
+      l1 = (w-l)/2-1
+    end if
+    l2 = l1 + l
     do i=1,w
-      buf(i:i) = '='
-      if (l==0) then
-        buf(i:i) = '='
+      if (l <= 1) then
+        ! --- no message ---
+        buf(i:i) = c
       else if (i==l1 .or. i==l2) then
+        ! --- space before and after message ---
         buf(i:i) = ' '
       else if (i > l1 .and. i < l2 .and. j <= l) then
+        ! --- copy message ---
         buf(i:i) = s(j:j)
         j = j+1
+      else
+        ! --- surrounding char ---
+        buf(i:i) = c
       end if
     end do
     print '(a)', buf
-  end subroutine
+  end subroutine line
 END SUBROUTINE header
 
 !===============================================================================

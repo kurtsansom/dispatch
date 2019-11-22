@@ -33,7 +33,8 @@ MODULE solver_mod
     procedure:: log_pressure => void
     !procedure:: gas_pressure_ngz
     !procedure:: cell_gas_pressure
-    procedure:: gas_temperature
+    !procedure:: gas_pressure
+    !procedure:: gas_temperature
     !procedure:: gas_temperature_ngz
     !procedure:: cell_gas_temperature
     procedure:: velocity_magnitude => void
@@ -50,15 +51,13 @@ MODULE solver_mod
 CONTAINS
 
 !===============================================================================
-!> Organize calls to the extras and the hydro solver
+!> Organize calls to the extras and the hydro solver. 
 !===============================================================================
 SUBROUTINE init (self)
   class(solver_t) :: self
   !.............................................................................
-  call self%extras_t%pre_init
-  !
-  call self%mhd_t%init
-  call self%extras_t%init
+  call self%mhd_t%pre_init              ! calls self%mhd_t%pre_init
+  call self%mhd_t%init                  ! calls self%gpatch_t%init
   call validate%init
 END SUBROUTINE init
 
@@ -74,7 +73,7 @@ FUNCTION cast2solver (task) RESULT(solver)
   solver => task
   class default
   nullify(solver)
-  call io%abort ('patch_t%cast: failed to cast a task to patch_t')
+  call io%abort ('solver_t%cast2solver: failed to cast a task to solver_t')
   end select
 END FUNCTION cast2solver
 
@@ -85,12 +84,14 @@ SUBROUTINE update (self)
   class(solver_t) :: self
   associate (d=>self%mem(:,:,:,self%idx%d,self%it,1))
   !.............................................................................
-  call self%extras_t%pre_update
+  call trace%begin ('solver_t%update')
+  call self%mhd_t%pre_update
   call validate%check (self, d, 'before update')
   call self%mhd_t%update
   call validate%check (self, d, ' after update')
-  call self%extras_t%post_update
+  call self%mhd_t%post_update
   end associate
+  call trace%end()
 END SUBROUTINE update
 
 !===============================================================================
@@ -247,20 +248,39 @@ END SUBROUTINE ss2e
 !> temperature from ideal gas law, taking into account that the temperature is
 !> normalised by k_B and mu (so that specific gas constant = 1)
 !===============================================================================
-FUNCTION gas_temperature (self, lnd, ss) RESULT (tmp)
-  class(solver_t):: self
-  real, dimension(:,:,:), pointer:: lnd, ss
-  real, dimension(self%gn(1),self%gn(2),self%gn(3)):: tmp
-  !-----------------------------------------------------------------------------
-  associate (d => self%mem(:,:,:,  1,self%it,1))
-  tmp = self%gas_pressure()/d
-  if (io%verbose > 2) then
-    if (any(tmp<0)) then
-      call io%abort ("solver_t%gas_temperature: T<0")
-    end if
-  end if
-  end associate
-END FUNCTION gas_temperature
+!FUNCTION gas_pressure (self, lnd, ss) RESULT (pg)
+!  class(solver_t):: self
+!  real, dimension(:,:,:), pointer:: lnd, ss, d, s
+!  optional:: lnd, ss
+!  real, dimension(self%gn(1),self%gn(2),self%gn(3)):: pg
+!  !-----------------------------------------------------------------------------
+!  if (present(lnd)) then
+!    pg = exp(lnd*self%gamma)*exp(ss*(self%gamma-1d0))
+!  else
+!    d => self%mem(:,:,:,self%idx%d,self%it,1)
+!    s => self%mem(:,:,:,self%idx%s,self%it,1)
+!    pg = d**self%gamma*exp(s/d*(self%gamma-1d0))
+!  end if
+!END FUNCTION gas_pressure
+
+!===============================================================================
+!> temperature from ideal gas law, taking into account that the temperature is
+!> normalised by k_B and mu (so that specific gas constant = 1)
+!===============================================================================
+!FUNCTION gas_temperature (self, lnd, ss) RESULT (tmp)
+!  class(solver_t):: self
+!  real, dimension(:,:,:), pointer:: lnd, ss
+!  real, dimension(self%gn(1),self%gn(2),self%gn(3)):: tmp
+!  !-----------------------------------------------------------------------------
+!  associate (d => self%mem(:,:,:,  1,self%it,1))
+!  tmp = self%gas_pressure()/d
+!  if (io%verbose > 2) then
+!    if (any(tmp<0)) then
+!      call io%abort ("solver_t%gas_temperature: T<0")
+!    end if
+!  end if
+!  end associate
+!END FUNCTION gas_temperature
 
 !===============================================================================
 SUBROUTINE log_density (self, v)
@@ -423,21 +443,20 @@ SUBROUTINE compression_magnitude (self, w)
   vy = self%mem(:,:,:,self%idx%py,self%it,1)/exp(d(:,:,:,2))
   vz = self%mem(:,:,:,self%idx%pz,self%it,1)/exp(d(:,:,:,3))
   if (self%kind(1:13) == 'stagger2e_pic') then
-    w = max(- ddxdn(self%ds(1),vx) &
-            - ddydn(self%ds(2),vy) &
-            - ddzdn(self%ds(3),vz), 0.0)
+    w = max(- ddxdn(self%ds,vx) &
+            - ddydn(self%ds,vy) &
+            - ddzdn(self%ds,vz), 0.0)
   else
-    w = max(- ddxup(self%ds(1),vx) &
-            - ddyup(self%ds(2),vy) &
-            - ddzup(self%ds(3),vz), 0.0)
+    w = max(- ddxup(self%ds,vx) &
+            - ddyup(self%ds,vy) &
+            - ddzup(self%ds,vz), 0.0)
   end if
   deallocate (vx, vy, vz, d)
   call trace%end (itimer)
 END SUBROUTINE compression_magnitude
 
 !===============================================================================
-!> Compute the vorticity, centered in cells, given that momenta are dn-staggered
-!> in stagger2, except for stagger2e_pic, where it up-staggered
+!> Compute the vorticity
 !===============================================================================
 SUBROUTINE vorticity_magnitude (self, w)
   class (solver_t):: self
@@ -461,13 +480,13 @@ SUBROUTINE vorticity_magnitude (self, w)
   vy = self%mem(:,:,:,self%idx%py,self%it,1)/exp(d(:,:,:,2))
   vz = self%mem(:,:,:,self%idx%pz,self%it,1)/exp(d(:,:,:,3))
   if (self%kind(1:13) == 'stagger2e_pic') then
-    w = sqrt(ydn(zdn(ddyup(self%ds(2),vz)-ddzup(self%ds(3),vy)))**2 &
-           + zdn(xdn(ddzup(self%ds(3),vx)-ddxup(self%ds(1),vz)))**2 &
-           + xdn(ydn(ddxup(self%ds(1),vy)-ddyup(self%ds(2),vx)))**2)
+    w = sqrt(ydn(zdn(ddyup(self%ds,vz)-ddzup(self%ds,vy)))**2 &
+           + zdn(xdn(ddzup(self%ds,vx)-ddxup(self%ds,vz)))**2 &
+           + xdn(ydn(ddxup(self%ds,vy)-ddyup(self%ds,vx)))**2)
   else
-    w = sqrt(yup(zup(ddydn(self%ds(2),vz)-ddzdn(self%ds(3),vy)))**2 &
-           + zup(xup(ddzdn(self%ds(3),vx)-ddxdn(self%ds(1),vz)))**2 &
-           + xup(yup(ddxdn(self%ds(1),vy)-ddydn(self%ds(2),vx)))**2)
+    w = sqrt(yup(zup(ddydn(self%ds,vz)-ddzdn(self%ds,vy)))**2 &
+           + zup(xup(ddzdn(self%ds,vx)-ddxdn(self%ds,vz)))**2 &
+           + xup(yup(ddxdn(self%ds,vy)-ddydn(self%ds,vx)))**2)
   end if
   deallocate (vx, vy, vz)
   call trace%end (itimer)
