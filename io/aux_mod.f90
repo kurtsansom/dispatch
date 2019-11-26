@@ -253,13 +253,18 @@ SUBROUTINE prepare (self, iout)
       select(:) = ''
       rewind (stdin)
       read (stdin, aux_params, iostat=iostat)
-      write (stdout,'(a,/,1x,a)') '&AUX_PARAMS', 'SELECT='
+      write (stdout,'(a,/1x,a,l2,",",/1x,a,i2,",",/,1x,a,$)') '&AUX_PARAMS', &
+       'ON=', on, &
+       'VERBOSE=', verbose, &
+       'SELECT='
       do i=1,max_select
         if (trim(select(i)) /= '') then
-          write (stdout,*) "'"//trim(select(i))//"',"
+          if (i > 1) &
+            write (stdout,'(a,$)') ', '
+          write (stdout,'(a,$)') "'"//trim(select(i))//"'"
         end if
       end do
-      write (stdout,*) '/'
+      write (stdout,'(/,a)') '/'
     end if
   else
     !---------------------------------------------------------------------------
