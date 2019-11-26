@@ -3,13 +3,17 @@ from __future__ import print_function
 
 import os
 import sys
+import mmap
 import f90nml
 import numpy as np
 import dispatch.graphics as dg
 from time import time
-from ._dispatch_grid import GeometricFactors
+from dispatch._dispatch_grid import GeometricFactors
+from dispatch._aux import aux
+from scipy.io import FortranFile
 
 class _timer():
+    """ timer functionality """
     def __init__(self):
         self.dict={}
         self._start=time()
@@ -51,6 +55,11 @@ def _p2():
 def _test():
     print ('a',_p2())
 
+def _pathjoin(d,f):
+    p=os.path.join(d,f)
+    p=p.replace('\\','/')
+    return p
+
 def _file(d,f):
     """ Join a dir and a filename, and check that the file exists
     """
@@ -79,6 +88,14 @@ def _add_nml_to(obj,d,verbose=0):
         if verbose==2:
             print('      adding property '+key+', with value',value)
 
+def map_var(p,iv):
+    """ Find the numeric index, if any, correspongind to a variable key """
+    if iv in p.keys['letters']:
+        jv=p.idx.dict[iv]
+    else:
+        jv=0
+    return jv
+
 class _param():
     pass
 
@@ -103,42 +120,152 @@ def _add_nml_list_to(obj,nml_list,verbose=0):
             subobj=getattr(obj,name)
             _add_nml_to(subobj,nml_dict,verbose=verbose)
 
-import mmap
-
 class memmap2(np.memmap):
-
+    """ Attempt at minimal np.memmap subclass """
     def __new__(subtype, *args, **kwargs):
         obj = super(memmap2, subtype).__new__(subtype,  *args, **kwargs)
-        obj._saved = {'len':obj._mmap.__len__(),'off':obj.offset,'file':obj.filename}
-        fd=open(obj.filename,'rb+')
-        saved=(fd.fileno(),obj._mmap.__len__(),obj.offset)
+        obj._saved = {'len':obj._mmap.__len__(),'off':obj.offset,
+                      'file':obj.filename}
+        fo=open(obj.filename,'rb+')
         obj._mmap.close()
         return obj
-
     def reopen(self):
         s=self._saved
         if self._mmap.closed:
             print('was closed, reopen')
-            fd=open(s['file'],'rb+')
-            self._mmap=mmap.mmap(fd.fileno(),offset=s['off'],length=s['len'])
+            fo=open(s['file'],'rb+')
+            self._mmap=mmap.mmap(fo.fileno(),offset=s['off'],length=s['len'])
         else:
             print('was open')
-
-    def __array_prepare__ (subtype, *args, **kwargs):
-        s=subtype._saved
-        if subtype._mmap.closed:
+    def __array_prepare__ (self, *args, **kwargs):
+        s=self._saved
+        if self._mmap.closed:
             print('was closed, reopen')
-            fd=open(s['file'],'rb+')
-            subtype._mmap=mmap.mmap(fd.fileno(),offset=s['off'],length=s['len'])
+            fo=open(s['file'],'rb+')
+            self._fileobj=fo
+            self._mmap=mmap.mmap(fo.fileno(),offset=s['off'],length=s['len'])
         else:
             print('was open')
-        obj = super(memmap2, subtype).__array_prepare__(subtype, *args, **kwargs)
+        obj = super(memmap2, self).__array_prepare__(self, *args, **kwargs)
         return obj
+
+class memmap3(np.memmap):
+    """ Working np.memmap subclass, with option to close after access """
+    def __new__(subtype, file, dtype=np.float32, mode='r+', offset=0, 
+                shape=(10,), order='F'):
+        self = super(memmap3, subtype).__new__(subtype, file, dtype=dtype, 
+                    mode=mode, offset=offset, shape=shape, order=order)
+        #print('-> memmap3.__new__')
+        length = self._mmap.__len__()
+        offset = self.offset
+        saved = (file,length,offset)
+        print('-> memmap3.__new__: saved=',saved)
+        self._saved = saved
+        self._mmap.close()
+        return self
+    def reopen(self):
+        print("-> memmap3.reopen")
+        print(self._saved)
+        (file,length,offset)=self._saved
+        if self._mmap.closed:
+            #print('--> was closed, reopen')
+            fo=open(file,'rb+')
+            block=mmap.ALLOCATIONGRANULARITY
+            o=(offset//block)*block
+            self._mmap=mmap.mmap(fo.fileno(),length,offset=o)
+    def __array_wrap__(self, arr, context=None):
+        #print('-> memmap3.__array_wrap__')
+        arr = super(memmap3, self).__array_wrap__(arr, *args, **kwargs)
+        return arr
+    def __array_prepare__ (self, obj, context=None):
+        #print('-> memmap3.__array_prepare__')
+        self.reopen()
+        obj = super(memmap3, self).__array_prepare__(obj, *args, **kwargs)
+        return obj
+    def __array_finalize__ (self, obj):
+        #print('-> memmap3.__array_finalize__')
+        super(memmap3,self).__array_finalize__(obj)
+        if obj is None:
+            return
+        self._saved = obj._saved
+        self._mmap = obj._mmap
+    def __repr__(self):
+        #print('-> memmap3.__repr__')
+        self.reopen()
+        output = super(memmap3,self).__repr__()
+        return output
+    def __str__(self):
+        #print('-> memmap3.__str__')
+        self.reopen()
+        output = super(memmap3,self).__str__()
+        return output
+
+class memmap4(np.memmap):
+    """ Working np.memmap subclass, with verbose option """
+    def __new__(subtype, file, dtype=np.float32,mode='w+',offset=0, 
+                shape=(10,), order='F',verbose=False):
+        self = super(memmap4, subtype).__new__(subtype,file,dtype=dtype, 
+                    mode=mode,offset=offset,shape=shape,order=order)
+        self._verbose=verbose
+        self._saved=(file,self._mmap.__len__(),self.offset)
+        self._mmap.close()
+        if self._verbose:
+            print('-> memmap4.__new__: saved =',self._saved,
+                  type(self.offset),type(offset))
+        return self
+    def verbose(self):
+        return hasattr(self,'_verbose') and self._verbose
+    def reopen(self):
+        (file,length,offset)=self._saved
+        if self.verbose():
+            print("-> memmap4.reopen: length, offset =",length,offset)
+        if self._mmap.closed:
+            if self.verbose():
+                print('--> was closed, reopen')
+            fo=open(file,'rb+')
+            self._fileobj=fo
+            block=mmap.ALLOCATIONGRANULARITY
+            o=(offset//block)*block
+            self._mmap=mmap.mmap(fo.fileno(),length,offset=o)
+        else:
+            if self.verbose():
+                print('--> was already open')
+    def __array_wrap__(self, arr, context=None):
+        if self.verbose():
+            print('-> memmap4.__array_wrap__')
+        arr = super(memmap4, self).__array_wrap__(arr, context)
+        return arr
+    def __array_prepare__ (self, obj, context=None):
+        if self.verbose():
+            print('-> memmap4.__array_prepare__')
+        self.reopen()
+        obj = super(memmap4, self).__array_prepare__(obj, context)
+        return obj
+    def __array_finalize__ (self, obj):
+        super(memmap4,self).__array_finalize__(obj)
+        if self.verbose():
+            print('-> memmap4.__array_finalize__')
+        if obj is None:
+            return
+        self._saved = obj._saved
+        self._mmap = obj._mmap
+    def __repr__(self):
+        self.reopen()
+        if self.verbose():
+            print('-> memmap4.__repr__')
+        output = super(memmap4,self).__repr__()
+        return output
+    def __str__(self):
+        if self.verbose():
+            print('-> memmap4.__str__')
+        self.reopen()
+        output = super(memmap4,self).__str__()
+        return output
 
 def _var(patch,filed,snap,verbose=0,copy=None):
     """ Too avoid the "too many file open" problem (Python on steno allows
-        "only" about 800 files, patch.data is defined as a function, which
-        returns a memmap.  The function takes numeric or alphbetic arguments,
+        "only" about 800 files), patch.var is defined as a function, which
+        returns a memmap.  The function takes numeric or alphabetic arguments,
         so patch.data(0) and patch.data('d') is typically the density.
     """
     if _p2():
@@ -175,20 +302,22 @@ def _var(patch,filed,snap,verbose=0,copy=None):
         if verbose==5:
             print (' iv, offset:',iv,patch.iout,patch.ntotal,patch.nv,offset)
 
-    def mem(iv,copy=None):
-        """ Translage alphabetic variable keys to numeric """
+    def mem(iv):
+        """ Translate alphabetic variable keys to numeric """
         if type(iv)==type('d'):
             iv=patch.idx.dict[iv]
-        if copy != None:
-            use_copy=copy
+        if patch.memmap==2:
+            return memmap2(filed, dtype=np.float32, offset=patch.offset[iv],
+                           mode='r', order='F', shape=shape)
+        elif patch.memmap==3:
+            return memmap3(filed, dtype=np.float32, offset=patch.offset[iv],
+                           mode='r', order='F', shape=shape)
+        elif patch.memmap==4:
+            return memmap4(filed, dtype=np.float32, offset=patch.offset[iv],
+                           mode='r', order='F', shape=shape)
         else:
-            use_copy=snap.copy
-        if use_copy or _p2():
-            return np.copy(np.memmap(filed, dtype=np.float32,
-                offset=patch.offset[iv], mode='r', order='F', shape=shape))
-        else:
-            return np.memmap(filed, dtype=np.float32,
-                offset=patch.offset[iv], mode='r', order='F', shape=shape)
+            return np.memmap(filed, dtype=np.float32, offset=patch.offset[iv],
+                             mode='r', order='F', shape=shape)
 
     def average_down(iv, axis=0):
         q = mem(iv)
@@ -226,7 +355,48 @@ def _var(patch,filed,snap,verbose=0,copy=None):
         else:
             return mem(iv)
 
-    def var(iv,copy=None):
+    def internal(v,all=False):
+        if all:
+            return v
+        elif patch.guard_zones:
+            l=patch.ng
+            u=l+patch.n
+            """ check if v.rank does not match the normal patch size.
+            If so, compute the guard zone size, and adjust """
+            rank=min(len(v.shape),len(patch.gn))
+            if v.shape[0:rank] != tuple(patch.gn[0:rank]):
+                gn=np.array(v.shape)
+                ng2=np.copy(gn)
+                for i in range(len(patch.gn)):
+                    ng2[i]=patch.gn[i]-gn[i]
+                ng=ng2//2
+                n=gn-ng2
+                l=ng
+                u=l+n
+            return v[l[0]:u[0],l[1]:u[1],l[2]:u[2]]
+        else:
+            rank=min(len(v.shape),len(patch.gn))
+            if v.shape[0:rank] != tuple(patch.n[0:rank]):
+                gn=np.array(v.shape)
+                ng2=np.copy(gn)
+                for i in range(len(patch.gn)):
+                    ng2[i]=gn[i]-patch.n[i]
+                ng=ng2//2
+                n=patch.n
+                l=ng
+                u=l+n
+                return v[l[0]:u[0],l[1]:u[1],l[2]:u[2]]
+            else:
+                return v
+
+    def post_process(v,copy=False,all=False,i4=0):
+        if copy or _p2():
+            v=np.copy(v)
+        if np.ndim(v)==4:
+            v=v[:,:,:,i4]
+        return internal(v,all=all)
+
+    def var(iv,all=False,copy=None,i4=0):
         """
         Special logic to calculate velocities from momenta on the fly.
         If the data is in spherical or cylindrical coords., then it is the angular
@@ -236,44 +406,72 @@ def _var(patch,filed,snap,verbose=0,copy=None):
         before multiplying by the data.
 
         """
-
-        if patch.kind[0:6]=='ramses':
-            if   iv=='ux':
-                return mem('p1',copy=copy)/mem('d',copy=copy)
-            elif iv=='uy':
-                return mem('p2',copy=copy)/mem('d',copy=copy)
-            elif iv=='uz':
-                return mem('p3',copy=copy)/mem('d',copy=copy)
-            else:
-                return mem(iv,copy=copy)
+        if type(iv)==int:
+            assert(iv in patch.keys['numbers']),'variable index unknown'
         else:
-            if   iv=='u1' or iv=='ux':
-                return mem('p1')/xdown('d')
-            elif iv=='u2' or iv=='uy':
-                if patch.mesh_type != 'Cartesian':
-                    return mem('p2')/ydown('d')/patch.geometric_factors['h2c'][:,np.newaxis,np.newaxis]
-                else:
-                    return mem('p2')/ydown('d')
-            elif iv=='u3' or iv=='uz':
-                if patch.mesh_type != 'Cartesian':
-                    gf = patch.geometric_factors # shorthand
-                    return mem('p3')/zdown('d')/gf['h31c'][:,np.newaxis,np.newaxis]/gf['h32c'][np.newaxis,:,np.newaxis]
-                else:
-                    return mem('p3')/zdown('d')
+            assert(iv in patch.all_keys),'variable key "'+iv+'" unknown'
+
+        """ Check if the index is numeric and corresponds to a cached array """
+        if hasattr(patch,'data'):
+            if iv in patch.data.keys():
+                v=patch.data[iv]
+                return post_process(v,all=all,copy=copy)
+
+        """ Check if the key corresponds to aux data """
+        if hasattr(patch,'aux'):
+            if iv in patch.aux.vars.keys():
+                v=patch.aux.var(iv)
+                return post_process(v,copy=copy,all=all)
+
+        """ Check special cases """
+        if iv in patch.keys['expressions']:
+            if iv=='ee' or iv=='E':
+                """ Expressions common to all solvers """
+                v=mem('e')/mem('d')
+            elif patch.kind[0:6]=='ramses':
+                """ Ramses solver expression """
+                if   iv=='ux' or iv=='u1' or iv=='vx':
+                    v=mem('p1')/mem('d')
+                elif iv=='uy' or iv=='u2' or iv=='vy':
+                    v=mem('p2')/mem('d')
+                elif iv=='uz' or iv=='u3' or iv=='vz':
+                    v=mem('p3')/mem('d')
             else:
-                return mem(iv,copy=copy)
+                """ Stagger-like solver expressions """
+                if iv=='u1' or iv=='ux' or iv=='vx':
+                    v=mem('p1')/xdown('d')
+                elif iv=='u2' or iv=='uy' or iv=='vy':
+                    if patch.mesh_type != 'Cartesian':
+                        v=mem('p2')/ydown('d') \
+                          /patch.geometric_factors['h2c'][:,np.newaxis,np.newaxis]
+                    else:
+                        v=mem('p2')/ydown('d')
+                elif iv=='u3' or iv=='uz' or iv=='vz':
+                    if patch.mesh_type != 'Cartesian':
+                        gf = patch.geometric_factors # shorthand
+                        v=mem('p3')/zdown('d')/gf['h31c'][:,np.newaxis,np.newaxis] \
+                         /gf['h32c'][np.newaxis,:,np.newaxis]
+                    else:
+                        v=mem('p3')/zdown('d')
+        else:
+            v=mem(iv)
+        return post_process(v,copy=copy,all=all,i4=i4)
     return var
 
 class _patch():
-    def __init__(self,id,patch_dict,snap,rank):
+    def __init__(self,id,patch_dict,snap,rank,verbose=0):
+        #timer.add('_patch(0)')
         self.id=id
         self.rank=rank
+        self.memmap=1
         # add general attributes from snapshot_nml
         for k,v in snap.dict.items():
             setattr(self,k,v)
+        timer.add('attrib-from-snapshot_nml')
         # add per-patch attributes from parsing
         for k,v in patch_dict.items():
             setattr(self,k,v)
+        #timer.add('_patch(2)')
         if not self.guard_zones:
             self.li[:]=0
             self.ui[:]=self.n-1
@@ -281,6 +479,7 @@ class _patch():
         if hasattr(snap,'idx'):
             self.idx=snap.idx
             self.idx.h=self._h()
+        timer.add('add-idx-attr')
         # reconstruct items pruned from patch_nml
         if hasattr(self,'size') and hasattr(self,'position') :
             llc=self.position-self.size/2.0
@@ -289,10 +488,12 @@ class _patch():
                                   (llc[2],urc[2],llc[0],urc[0]),
                                   (llc[0],urc[0],llc[1],urc[1])))
             self.llc_cart=llc
+        timer.add('llc-urc-extent')
         if not hasattr(self,'units'):
             if hasattr(snap,'units'):
                 self.units=snap.units
         # modify `mesh_type` from integer to string for readability
+        #timer.add('_patch(6)')
         if hasattr(self,'mesh_type'):
             if self.mesh_type == 1:
                 self.mesh_type = "Cartesian"
@@ -301,11 +502,42 @@ class _patch():
             elif self.mesh_type == 3:
                 self.mesh_type = "cylindrical"
         # support for legacy I/O method filenames
+        #timer.add('_patch(7))')
         if snap.io.method.strip()=='legacy':
             self.filename=snap.rundir+'/{:05d}/{:05d}.dat'.format(self.iout,self.id)
             self.var=_var(self,self.filename,snap)
         else:
             self.var=_var(self,snap.datafiled,snap)
+        timer.add('_var')   # 1.8s
+            
+        """ add a comprehensive set of variable keys """
+        self.keys={}
+        self.keys['letters']=list(snap.idx.dict.keys())
+        timer.add('letters')
+        self.keys['numbers']=list(snap.idx.dict.values())
+        timer.add('numbers')
+        self.keys['expressions']=['ux','uy','uz','u1','u2','u3','ee','E']
+        timer.add('expressions')
+        # attach an aux filaname, if it exists
+        auxfile='{:05d}.aux'.format(id)
+        #timer.add('_patch(9c))')
+        auxfile=_pathjoin(snap.datadir,auxfile)
+        timer.add('auxfile')
+        if 1:
+            if os.path.isfile(auxfile):
+                self.auxfile=auxfile
+                self.aux=aux(id=id,io=snap.iout,file=auxfile)
+                self.keys['aux']=self.aux.vars.keys()
+            elif verbose>0:
+                print(auxfile,'does not exist')
+            timer.add('read-aux')
+        
+        """ Now collect all keys in a single list """
+        all=[]
+        for key_list in self.keys.values():
+            all.extend(key_list)
+        self.all_keys=all
+        timer.add('all-values')
 
     def _h(self):
         idx=self.idx
@@ -318,6 +550,7 @@ class _patch():
             if idx.p3>=0: h[2,idx.p3]=-0.5
             if idx.b3>=0: h[2,idx.b3]=-0.5
         return h
+
     def cache(self,verbose=0):
         setattr(self,'o',_param())
         self.data={}
@@ -365,7 +598,7 @@ object takes both numeric and text key values: Examples:\n\
             p=p-i
             f = self.var(iv)[li[0]:ui[0],li[1]:ui[1],i  ]*(1.0-p) \
               + self.var(iv)[li[0]:ui[0],li[1]:ui[1],i+1]*p
-        if verbose:
+        if self.verbose:
             print('plane: i, p = {:d} {:.3f}'.format(i,p))
         return f
             
@@ -390,17 +623,16 @@ def _parse_namelist (items):
 
     return np.array(pos)
 
-def parse_patches(file='data/00000/rank_00000_patches.nml'):
+def parse_patches(snap,file='../data/00000/rank_00000_patches.nml'):
     """ Optimized parsing of patch namelist entries.
-        Asssumes that ID is the first item and LEVEL is the last
     """
     prop_dict={}
     class props():
         pass
 
-    with open(file,'r') as fd:
+    with open(file,'r') as fo:
         watch_block = False
-        for line in fd:
+        for line in fo:
             # strip commas and equal sign from line and split
             line=line.replace('=',' ').replace(',','').replace('"',' ')
             items=line.split()
@@ -413,10 +645,13 @@ def parse_patches(file='data/00000/rank_00000_patches.nml'):
                 d['position'] = _parse_namelist(items)
             elif items[0]=='SIZE':
                 d['size'] = _parse_namelist(items)
+                d['ds'] = d['size']/snap.n
             elif items[0]=='LEVEL':
                 d['level']=int(items[1])
             elif items[0]=='DTIME':
                 d['dtime']=float(items[1])
+            elif items[0]=='TIME':
+                d['time']=float(items[1])
             elif items[0]=='ISTEP':
                 d['istep']=int(items[1])
             elif items[0]=='DS':
@@ -430,23 +665,26 @@ def parse_patches(file='data/00000/rank_00000_patches.nml'):
             elif items[0]=='/' and watch_block: # the final entry of a namelist is always "/"
                 prop_dict[id]=d
                 watch_block = False
-
     return prop_dict
 
-import resource
 class snapshot():
     """ Return a snapshot worth of metadata, including memory mapped variables
     """
-    def __init__(self, iout=0, run='', data='data', datadir='', verbose=0, copy=False, timeit=False):
+    def __init__(self, iout=0, run='', data='../data', datadir='', verbose=0, copy=False, timeit=False):
         # Set the max number of open files to the hard limit
-        limits=resource.getrlimit(resource.RLIMIT_NOFILE)
-        resource.setrlimit(resource.RLIMIT_NOFILE, (limits[1],limits[1]))
+        try:
+            import resource
+            limits=resource.getrlimit(resource.RLIMIT_NOFILE)
+            resource.setrlimit(resource.RLIMIT_NOFILE, (limits[1],limits[1]))
+        except:
+            pass
         self.copy=copy
         # Start time measurement
         timer.start()
         rundir=_dir(data,run)
         if datadir=='':
             datadir=_dir(rundir,'{:05d}'.format(iout))
+            self.datadir=datadir
         self.rundir=rundir
 
         files=[f for f in os.listdir(datadir) if f.endswith('snapshot.nml')]
@@ -489,10 +727,12 @@ class snapshot():
         for k,v in self.dict.items():
             if isinstance(v,list):
                 self.dict[k]=np.array(v)
+        timer.add('lists-to-arrays')
 
         # add patches as a list of dicts
         self.patches=[]
         files=[f for f in os.listdir(datadir) if f.endswith('_patches.nml')]
+        save=[]
         for f in files:
             # split name to get rank number
             rank=np.int(f.split('_')[1])
@@ -500,9 +740,23 @@ class snapshot():
             file=_file(datadir,f)
             if verbose==1:
                 print ('parsing',file)
-            patch_dict=parse_patches(file)
-            for id in sorted(patch_dict.keys()):
-                p=_patch(id,patch_dict[id],self,rank)
+            patch_dict=parse_patches(self,file)
+            save.append(patch_dict)
+        timer.add('parse_patches')   # 0.7s
+        for patch_dict in save:
+            """ 
+                At this point all metadata about patches is available in the
+                patch_dict, with patch IDs as keys.  This makes it possible to
+                scan for files that can supply both regular and auxiliary data 
+            """
+            ids=sorted(patch_dict.keys())
+            timer.add('sorted-keys')
+            for id in ids:
+                """ The _patch procedure collects all information about a patch
+                    into an instancc of the _patch class, and appends it to
+                    the snapshot.patches list """
+                p=_patch(id,patch_dict[id],self,rank,verbose=verbose)
+                timer.add('snapshot(1)')
                 self._add_axes(p)
                 # Append to array of patch instances
                 self.patches.append(p)
@@ -522,34 +776,37 @@ class snapshot():
                             p.idx.vars[iv], vmin, vmax))
                 elif verbose==4:
                     attributes(p)
+                timer.add('append+verbose')
             if verbose==1:
                 print('  added',len(self.patches),'patches')
         timer.add('_patches')
         timer.print(verbose=verbose,timeit=timeit)
 
     def _add_axes(self,patch):
+        first=patch.llc_cart-patch.ng*patch.ds
+        n=patch.gn
+        ng=patch.ng
         if patch.no_mans_land:
-            first=patch.llc_cart+0.5*patch.ds
-        else:
-            first=patch.llc_cart
-        if self.io.guard_zones:
-            first=first-patch.ds*patch.ng
-            ii0=np.arange(patch.ncell[0])
-            ii1=np.arange(patch.ncell[1])
-            ii2=np.arange(patch.ncell[2])
-        else:
-            ii0=np.arange(patch.n[0])
-            ii1=np.arange(patch.n[1])
-            ii2=np.arange(patch.n[2])
-        patch.x=first[0]+patch.ds[0]*ii0
-        patch.y=first[1]+patch.ds[1]*ii1
-        patch.z=first[2]+patch.ds[2]*ii2
+            first=first+0.5*patch.ds
+        patch.x=first[0]+patch.ds[0]*np.arange(n[0])
+        patch.y=first[1]+patch.ds[1]*np.arange(n[1])
+        patch.z=first[2]+patch.ds[2]*np.arange(n[2])
+        timer.add('_add_axes(1)')  # 6.9s
+        patch.xi=patch.x[ng[0]:-ng[0]]
+        patch.yi=patch.y[ng[0]:-ng[0]]
+        patch.zi=patch.z[ng[0]:-ng[0]]
         patch.xs=patch.x-0.5*patch.ds[0]
         patch.ys=patch.y-0.5*patch.ds[1]
         patch.zs=patch.z-0.5*patch.ds[2]
         patch.xyz=[patch.x,patch.y,patch.z]
+        patch.xyzi=[patch.xi,patch.yi,patch.zi]
+        timer.add('_add_axes(2)')  # 6.9s
         # add geometric factors to patch (important for spherical/cylindrical coords.)
-        patch.geometric_factors = GeometricFactors(patch)
+        if self.mesh_type==1:
+            patch.geometric_factors=None
+        else:
+            patch.geometric_factors=GeometricFactors(patch)
+            timer.add('geometric_factors')  # 6.9s
 
     def patches_in (self, x=None, y=None, z=None):
         pp=self.patches
@@ -577,7 +834,7 @@ class snapshot():
     def plane(self,x=None,y=None,z=None,iv=0,verbose=0):
         dg.image_plane(self,x=x,y=y,z=z,iv=iv,verbose=1)
 
-def snapshots(run='',data='data', verbose=0):
+def snapshots(run='',data='../data', verbose=0):
     """ Return a list of all snapshots in the data/run/ directory
     """
     rund=_dir(data,run)
@@ -603,12 +860,23 @@ def attributes(patch):
         if k != 'data':
             print ('{:>12}:  {}'.format(k,v))
 
+def pdf(iout=1,run='',data='../data'):
+    """ Read and accumulate PDF output files from all ranks """
+    rundir=data+'/'+run+'/'
+    assert os.path.isdir(rundir), 'the directory {} does not exist'.format(rundir)
+    files=os.listdir(rundir)
+    pattern='pdf_{:05d}'.format(iout)
+    files=[f for f in files if f.startswith(pattern)]
+    assert len(files) > 0, 'there are no {}_* files in {}'.format(pattern,rundir)
+    counts=0
+    for file in files:
+        with FortranFile(rundir+file,'r') as ff:
+            ioformat,nbins=ff.read_ints()
+            time=ff.read_reals('<f8')[0]
+            bins=ff.read_reals('<f4')/np.log(10)
+            counts+=ff.read_reals('<f4')
+    return _obj({'ioformat':ioformat,'time':time,'bins':bins,'counts':counts})
+
 if __name__ == "__main__":
-    s=snapshot(2,verbose=1)
-    print(s.time)
-    for key in s.nml_list:
-        print(key)
-    obj=_param()
-    _add_nml_to(obj,s.nml_list['io_nml'])
-    _add_nml_list_to(obj,s.nml_list)
+    pass
 

@@ -9,17 +9,13 @@ from __future__ import print_function
 
 import numpy as np
 import dispatch
-import types
+#import types
 
 def aver(s,iv=0):
-    if type(iv)==type('d'):
-        iv=s.idx.dict[iv]
     f=0.0
     v=0.0
     p=s.patches[0]
-    data=p.data[iv] if hasattr(p,'data') else p.var(iv)
-    if type(iv)==type('d'):
-        iv=p.idx.dict[iv]
+    data=p.var(iv)
     for p in s.patches:
         dv=np.product(p.ds)
         v=v+dv
@@ -27,25 +23,23 @@ def aver(s,iv=0):
     return f/v
 
 def rms(s,iv=0):
-    if type(iv)==type('d'):
-        iv=s.idx.dict[iv]
     f=0.0
     v=0.0
     p=s.patches[0]
-    data=p.data[iv] if hasattr(p,'data') else p.var(iv)
-    if type(iv)==type('d'):
-        iv=p.idx.dict[iv]
     for p in s.patches:
-        dv=np.product(p.ds)
-        v=v+dv
-        f=f+dv*np.sum(data)
+        if iv in p.all_keys:
+            data=p.var(iv)
+            dv=np.product(p.ds)
+            v=v+dv
+            f=f+dv*np.sum(data)
     fa=f/v
     f=0.0
     for p in s.patches:
-        data=p.data[iv] if hasattr(p,'data') else p.var(iv)
-        dv=np.product(p.ds)
-        v=v+dv
-        f=f+dv*np.sum((data-fa)**2)
+        if iv in p.all_keys:
+            data=p.var(iv)
+            dv=np.product(p.ds)
+            v=v+dv
+            f=f+dv*np.sum((data-fa)**2)
     return np.sqrt(f/v)
 
 def minloc(a):
@@ -68,16 +62,12 @@ def _patches(s):
         pp=s
     return pp
 
-def stat(s,iv=0):
-    if type(iv)==type('d'):
-        iv=s.idx.dict[iv]
+def stat(s,iv=0,i4=0):
     f=0.0
     v=0.0
     pp=_patches(s)
     p=pp[0]
-    if type(iv)==type('d'):
-        iv=p.idx.dict[iv]
-    data=p.data[iv] if hasattr(p,'data') else p.var(iv)
+    data=p.var(iv,i4=i4)
     d=data
     m=maxloc(d)
     dmin=float(d.min())
@@ -86,104 +76,125 @@ def stat(s,iv=0):
     m=minloc(d)
     rmin=[p.x[m[0]],p.y[m[1]],p.z[m[2]]]
     for p in pp:
-        data=p.data[iv] if hasattr(p,'data') else p.var(iv)
-        dv=np.product(p.ds)
-        v=v+dv
-        d=data
-        dmx=float(d.max())
-        dmn=float(d.min())
-        if dmx>dmax:
-            dmax=dmx
-            m=maxloc(d)
-            rmax=[p.x[m[0]],p.y[m[1]],p.z[m[2]]]
-        if dmn < dmin:
-            dmin=dmn
-            m=minloc(d)
-            rmin=[p.x[m[0]],p.y[m[1]],p.z[m[2]]]
-        f=f+dv*np.sum(d)
+        if iv in p.all_keys:
+            data=p.var(iv)
+            dv=np.product(p.ds)
+            v=v+dv
+            d=data
+            dmx=float(d.max())
+            dmn=float(d.min())
+            if dmx>dmax:
+                dmax=dmx
+                m=maxloc(d)
+                rmax=[p.x[m[0]],p.y[m[1]],p.z[m[2]]]
+            if dmn < dmin:
+                dmin=dmn
+                m=minloc(d)
+                rmin=[p.x[m[0]],p.y[m[1]],p.z[m[2]]]
+            f=f+dv*np.sum(d)
     av=float(f/v)
     f=0.0
     for p in pp:
-        data=p.data[iv] if hasattr(p,'data') else p.var(iv)
-        dv=np.product(p.ds)
-        v=v+dv
-        f=f+dv*np.sum((data-av)**2)
+        if iv in p.all_keys:
+            data=p.var(iv)
+            dv=np.product(p.ds)
+            v=v+dv
+            f=f+dv*np.sum((data-av)**2)
     rm=np.sqrt(float(f/v))
     print('average: {:12.4e}'.format(av))
     print('    rms: {:12.4e}'.format(rm))
     print('    max: {:12.4e}, at {}'.format(dmax,rmax))
     print('    min: {:12.4e}, at {}'.format(dmin,rmin))
 
-def haver1(s,iv=0,point=0.0,dir=2,verbose=0):
+def haver1(s,iv=0,point=0.0,dir=2,x=None,y=None,z=None,all=False,i4=0,verbose=0):
     """ Horizontal average in one plane """
     pp=_patches(s)
-    n=0
+    n_patch=0
     f=0.0
     v=0.0
+    if x:
+        dir=0
+        point=x
+    elif y:
+        dir=1
+        point=y
+    elif z:
+        dir=2
+        point=z
     for p in pp:
-        if p.position[dir]+p.size[dir]/2.0 >= point and \
-           p.position[dir]-p.size[dir]/2.0 <= point:
+        ds=p.ds[dir]
+        lc=p.position[dir]-p.size[dir]/2.0
+        uc=p.position[dir]+p.size[dir]/2.0
+        if all and p.guard_zones:
+            lc=lc-p.ng[dir]*p.ds[dir]
+            uc=uc+p.ng[dir]*p.ds[dir]
+            n=p.gn[dir]
+        else:
+            n=p.n[dir]
+        if uc >= point and lc <= point:
+            n_patch+=1
+            if p.no_mans_land:
+                lc=lc+p.ds[dir]/2
+            fi=(point-lc)/ds
+            i=max(0,min(n-2,np.floor(fi)))
+            fi=fi-i
+            if fi < 0:
+                w0=1.0+fi
+                w1=None
+            elif fi > 1.0:
+                w0=2.0-fi
+                w1=None
+            else:
+                w0=1.0-fi
+                w1=fi
             if verbose>1:
-                print ('use',p.id)
+                print ('id:',p.id,'i:',i,'w:',w0,w1)
             n+=1
             dv=np.product(p.ds)
-            v=v+dv
-            data=p.data[iv] if hasattr(p,'data') else p.var(iv)
+            data=p.var(iv,i4=i4,all=all)
+            v=v+dv*w0
+            if w1:
+                v=v+dv*w1
             if dir==0:
-                s=np.abs(p.x-point)
-                i=np.argmin(s)
-                f=f+dv*np.sum(data[i,:,:])
+                f=f+dv*np.sum(data[i,:,:])*w0
+                if w1:
+                    f=f+dv*np.sum(data[i+1,:,:])*w1
             elif dir==1:
-                s=np.abs(p.y-point)
-                i=np.argmin(s)
-                f=f+dv*np.sum(data[:,i,:])
+                f=f+dv*np.sum(data[:,i,:])*w0
+                if w1:
+                    f=f+dv*np.sum(data[:,i+1,:])*w1
             else:
-                s=np.abs(p.z-point)
-                i=np.argmin(s)
-                f=f+dv*np.sum(data[:,:,i])
+                f=f+dv*np.sum(data[:,:,i])*w0
+                if w1:
+                    f=f+dv*np.sum(data[:,:,i+1])*w1
     if verbose>0:
-        print('using',n,'patches')
+        print('using',n_patch,'patches')
     return f/v
 
-def map_var(p,iv):
-    jv=iv
-    if iv=='u1':
-        jv=p.idx.dict['p1']
-    elif iv=='u2':
-        jv=p.idx.dict['p2']
-    elif iv=='u3':
-        jv=p.idx.dict['p3']
-    elif type(iv)==type('d'):
-        jv=p.idx.dict[iv]
-    return jv
-
-def hminmax(s,iv=0,dir=2,offset=0,verbose=0):
-    """ Horizontal average """
+def hminmax(s,iv=0,dir=2,i4=0,all=False,verbose=0):
+    """ Find the smallest and largest values in planes perpendicular to dir """
     pp=_patches(s)
     p=pp[0]
     xx=[]
     hmin=[]
     hmax=[]
-    jv=map_var(p,iv)
     for p in pp:
-        rr=p.xyz[dir]
-        data=p.data[jv] if hasattr(p,'data') else p.var(iv)
-        if offset != 0:
-            o=offset
-        elif p.guard_zones:
-            o=p.ng[dir]
+        if all:
+            rr=p.xyz[dir]
         else:
-            o=0
-        for i in range(p.n[dir]):
-            if dir==0:
-                f=data[i+o,:,:]
-            elif dir==1:
-                f=data[:,i+o,:]
-            else:
-                f=data[:,:,i+o]
-            xx.append(rr[i+o])
-            hmin.append(f.min())
-            hmax.append(f.max())
+            rr=p.xyzi[dir]
+        if iv in p.all_keys:
+            data=p.var(iv,all=all,i4=i4)
+            for i in range(data.shape[dir]):
+                if dir==0:
+                    f=data[i,:,:]
+                elif dir==1:
+                    f=data[:,i,:]
+                else:
+                    f=data[:,:,i]
+                xx.append(rr[i])
+                hmin.append(f.min())
+                hmax.append(f.max())
     # sort the results
     xx=np.array(xx)
     hmin=np.array(hmin)
@@ -202,6 +213,7 @@ def hminmax(s,iv=0,dir=2,offset=0,verbose=0):
         h1=hmin[i]
         h2=hmax[i]
         x0=xx[i]
+        # if there are nore at the same coordinate
         while i<len(xx) and xx[i]==x0:
             h1=min(h1,hmin[i])
             h2=max(h2,hmax[i])
@@ -214,33 +226,32 @@ def hminmax(s,iv=0,dir=2,offset=0,verbose=0):
     hmax=np.array(ymax)
     return xx,hmin,hmax
 
-def haver(s,iv=0,dir=2,offset=0,verbose=0):
+def haver(s,iv=0,dir=2,i4=0,all=False,verbose=0):
     """ Horizontal average in all planes """
     pp=_patches(s)
     p=pp[0]
     xx=[]
     hav=[]
-    jv=map_var(p,iv)
+    jv=dispatch.map_var(p,iv)
     for p in pp:
         es=0.5 if p.no_mans_land else 0.0
         es=es+p.idx.h[dir,jv]
-        rr=p.llc_cart[dir]+p.ds[dir]*(np.arange(p.n[dir])+es)
-        data=p.data[iv] if hasattr(p,'data') else p.var(iv)
-        if offset != 0:
-            o=offset
-        elif p.guard_zones:
-            o=p.ng[dir]
+        n=p.gn if all else p.n
+        if all:
+            rr=p.xyz[dir]
         else:
-            o=0
-        for i in range(len(rr)):
-            if dir==0:
-                f=data[i+o,:,:]
-            elif dir==1:
-                f=data[:,i+o,:]
-            else:
-                f=data[:,:,i+o]
-            xx.append(rr[i])
-            hav.append(np.average(f))
+            rr=p.xyzi[dir]
+        if iv in p.all_keys:
+            data=p.var(iv,i4=i4,all=all)
+            for i in range(data.shape[dir]):
+                if dir==0:
+                    f=data[i,:,:]
+                elif dir==1:
+                    f=data[:,i,:]
+                else:
+                    f=data[:,:,i]
+                xx.append(rr[i])
+                hav.append(f.mean())
     # sort the results
     xx=np.array(xx)
     hav=np.array(hav)
