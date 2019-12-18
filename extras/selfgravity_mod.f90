@@ -90,8 +90,11 @@ SUBROUTINE init (self, patch)
   !-----------------------------------------------------------------------------
   call trace%begin ('selfgravity_t%init')
 
-  if (patch%kind(1:4) /= 'zeus') &
-    allocate (patch%force_per_unit_volume(patch%gn(1),patch%gn(2),patch%gn(3),3))
+  if (.not. allocated(patch%force_per_unit_mass)) then
+    if (patch%kind(1:4) /= 'zeus') &
+      allocate (patch%force_per_unit_mass(patch%gn(1),patch%gn(2),patch%gn(3),3))
+  end if
+
   !$omp critical (poisson_cr)
   if (first_poisson) then
     first_poisson = .false.
@@ -148,7 +151,7 @@ SUBROUTINE pre_update (self, patch)
   ! gradient of the potential internally.
   !-----------------------------------------------------------------------------
   if (patch%kind(1:4) /= 'zeus') &
-    patch%force_per_unit_volume = grad (patch%mesh, phi)
+    patch%force_per_unit_mass = -grad (patch%mesh, phi)
   !-----------------------------------------------------------------------------
   ! compute estimate of dphi/dt
   !-----------------------------------------------------------------------------
