@@ -44,11 +44,8 @@ CONTAINS
 SUBROUTINE pre_init (self, patch)
   class(selfgravity_t):: self
   class(patch_t):: patch
-  real(kind=KindScalarVar), pointer :: ff(:,:,:,:)
-  character(len=64)                 :: filename
-  logical                           :: ok
   integer                           :: iostat
-  logical, save                     :: first_time=.true., first_poisson=.true.
+  logical, save                     :: first_time=.true.
   real, save                        :: d0=-1.0
   real(kind=KindScalarVar), pointer :: d(:,:,:)
   namelist /selfgravity_params/ selfgravity, prediction, order, d0, verbose
@@ -64,6 +61,7 @@ SUBROUTINE pre_init (self, patch)
   end if
   !$omp end critical (input_cr)
 
+  self%d0 = d0
   if (selfgravity) then
     self%selfgravity = selfgravity
     if (patch%kind(1:4) /= 'zeus') patch%nv = patch%nv + 1
@@ -87,19 +85,13 @@ SUBROUTINE init (self, patch)
   class(selfgravity_t):: self
   class(patch_t):: patch
   real(kind=KindScalarVar), pointer :: ff(:,:,:,:)
-  character(len=64)                 :: filename
-  logical                           :: ok
-  integer                           :: iostat
   logical, save                     :: first_time=.true., first_poisson=.true.
-  real, save                        :: d0=-1.0
   real(kind=KindScalarVar), pointer :: d(:,:,:)
-  namelist /selfgravity_params/ selfgravity, prediction, order, d0, verbose
   !-----------------------------------------------------------------------------
   call trace%begin ('selfgravity_t%init')
 
   if (patch%kind(1:4) /= 'zeus') &
     allocate (patch%force_per_unit_volume(patch%gn(1),patch%gn(2),patch%gn(3),3))
-  self%d0 = d0
   !$omp critical (poisson_cr)
   if (first_poisson) then
     first_poisson = .false.
@@ -174,14 +166,12 @@ END SUBROUTINE pre_update
 SUBROUTINE post_update (self, patch)
   class(selfgravity_t):: self
   class(patch_t):: patch
+  integer, save:: itimer=0
   !-----------------------------------------------------------------------------
   if (.not. selfgravity) return
-  call trace%begin ('selfgravity_t%post_update')
+  call trace%begin ('selfgravity_t%post_update', itimer=itimer)
   if (selfgravity) then
     if (self%poisson_time == patch%time) then
-      !call timestep%update(patch%id, patch%iit, patch%dt, patch%mem, patch%mesh)
-      call patch%rotate
-      patch%rotated = .true.
       if (verbose>0) &
         print *, patch%id, 'selfgravity_t%update updated patch%time to', patch%time
     else
@@ -189,12 +179,11 @@ SUBROUTINE post_update (self, patch)
       call patch%dnload (only=patch%idx%phi)
       call self%pre_update (patch)
       self%poisson_time = patch%time
-      patch%rotated = .true.
       if (verbose>0) &
         print *, patch%id, 'selfgravity_t%update updated self%poisson_time to', self%poisson_time
     end if
   end if
-  call trace%end()
+  call trace%end(itimer)
 END SUBROUTINE post_update
 
 !===============================================================================
