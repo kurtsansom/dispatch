@@ -33,7 +33,7 @@ SUBROUTINE init_experiment (self)
   self%mhd = .false.
   call self%solver_t%init()
   call pboundaries%init(self)
-  call trace%end
+  call trace%end()
 END SUBROUTINE init_experiment
 
 !===============================================================================
@@ -45,8 +45,10 @@ SUBROUTINE update_experiment (self)
   integer:: m
   !----------------------------------------------------------------------------
   call trace%begin('experiment_t%update')
+  call pboundaries%conditions(self, self%it)
   call self%solver_t%update()
-  call trace%end
+  call pboundaries%conditions(self, self%new)
+  call trace%end()
 END SUBROUTINE update_experiment
 
 END MODULE experiment_mod
