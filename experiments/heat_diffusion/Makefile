@@ -1,13 +1,13 @@
 
 # Option groups
+#OPTS = full_debug
 #OPTS = debug
-OPTS = full_debug
-#OPTS = optimized
+#OPTS =
+OPTS = optimized
 
 # Default target and methods
 EXEC            = dispatch.x
-#UPD             = adams_bashforth
-SOLVER          = void
+SOLVER          = heat_diffusion
 TOP             = ../..
 
 # Tomida & Hori, with opacity

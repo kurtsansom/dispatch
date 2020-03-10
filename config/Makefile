@@ -69,6 +69,8 @@ sinclude $(TOP)/timestep/$(UPD)/Makefile
 sinclude $(TOP)/particles/Makefile
 sinclude $(TOP)/states/Makefile
 sinclude $(TOP)/boundaries/Makefile
+VPATH := $(SOLVER):.:$(VPATH)
+sinclude $(SOLVER)/Makefile
 
 #############################################################################
 # HDF5 option

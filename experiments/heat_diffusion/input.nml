@@ -1,19 +1,35 @@
 ! $Id$
 
-&io_params          verbose=0 do_trace=f do_output=t method='parallel' /
-&out_params         end_time=5.01 out_time=0.50 print_time=0.0 /
+&experiment_params
+ initial_temperature=1.0        ! interior T
+ outside_temperature=1.0 /      ! exterior T
+
+&io_params
+ verbose=0                      ! noise level
+ do_trace=f                     ! trace calls?
+ do_output=f                    ! snapshot I/O?
+ method='parallel' /            ! I/O method
+
+&out_params
+ end_time=1.01                  ! run until this time
+ out_time=0.50                  ! output time interval
+ print_every=500 /              ! task loggin cadence
 
 &cartesian_params
- size=1,1,1         ! box size
- dims=04,04,04      ! patch arrangement
- mpi_dims=2,1,1     !  1-2 MPI ranks
- omp_init=t         ! spread memory allocation
-/
+ size=1,1,1                     ! box size
+ dims=3*16                      ! patch arrangement
+ mpi_dims=2,1,1                 !  1-2 MPI ranks
+ omp_init=t /                   ! spread memory allocation
+
 &patch_params
- nt=5
- nv=2
- grace=0.1
- n=3*24
-/
-&download_params    verbose=0 /
-!&timer_params      sec_per_report=10 /
+ n=3*32                         ! patch dimensions
+ nt=5                           ! number of time slices
+ !nv=2                           ! number of variables (radii, temperature)
+ grace=0.1 /                    ! extrapolate tolerance
+
+&download_params
+ verbose=0 /                    ! noise level
+
+&timer_params
+ sec_per_report=10 /            ! performance report cadence
+

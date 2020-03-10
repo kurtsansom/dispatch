@@ -37,6 +37,16 @@ MODULE gpatch_mod
     procedure:: counter_update
     procedure:: dnload
     procedure:: courant_condition
+    !--- from void solver ---
+    procedure:: void_fun
+    procedure:: void_fun1
+    procedure:: void_fun3
+    procedure:: gas_pressure => void_fun
+    procedure:: compression_magnitude => void_sub
+    procedure:: vorticity_magnitude => void_sub
+    procedure:: gas_velocity_scalar => void_fun1
+    procedure:: gas_velocity_vector => void_fun3
+    generic:: gas_velocity => gas_velocity_scalar, gas_velocity_vector
   end type
   real(8), save :: restart_time = 0d0
   logical, save :: detailed_timer=.false.
@@ -214,5 +224,40 @@ SUBROUTINE courant_condition (self, detailed_timer)
   call self%patch_t%courant_condition (detailed_timer)
   call trace%end()
 END SUBROUTINE courant_condition
+
+!===============================================================================
+!> Voíd stub procedures
+!===============================================================================
+SUBROUTINE void_sub (self, w)
+  class(gpatch_t):: self
+  real, dimension(:,:,:):: w
+  !-----------------------------------------------------------------------------
+  w = self%mem(:,:,:,1,1,1)
+END SUBROUTINE void_sub
+
+!===============================================================================
+FUNCTION void_fun (self) RESULT (pg)
+  class(gpatch_t):: self
+  real, dimension(self%gn(1),self%gn(2),self%gn(3)):: pg
+  !-----------------------------------------------------------------------------
+  pg = self%mem(:,:,:,1,1,1)
+END FUNCTION void_fun
+
+!===============================================================================
+FUNCTION void_fun1 (self, idir) RESULT (v)
+  class(gpatch_t):: self
+  integer:: idir
+  real(4), dimension(self%gn(1),self%gn(2),self%gn(3)):: v
+  !-----------------------------------------------------------------------------
+  v = self%mem(:,:,:,1,1,1)
+END FUNCTION void_fun1
+
+!===============================================================================
+FUNCTION void_fun3 (self) RESULT (v)
+  class(gpatch_t):: self
+  real(4), dimension(self%gn(1),self%gn(2),self%gn(3),3):: v
+  !-----------------------------------------------------------------------------
+  v = self%mem(:,:,:,1,1:3,1)
+END FUNCTION void_fun3
 
 END MODULE gpatch_mod

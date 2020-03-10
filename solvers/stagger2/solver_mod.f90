@@ -45,7 +45,6 @@ MODULE solver_mod
     procedure:: vorticity_magnitude
     procedure:: gas_velocity_vector
     procedure:: gas_velocity_scalar
-    generic:: gas_velocity => gas_velocity_vector, gas_velocity_scalar
   end type
   type(solver_t), public:: solver
 CONTAINS

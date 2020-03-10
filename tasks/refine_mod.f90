@@ -303,7 +303,7 @@ FUNCTION refine_needed (self, tasklist, link) RESULT (refine)
   !----------------------------------------------------------------------------
   ! Refinement criteria, starting with assumed derefinement
   !------------------------------------------------------------------------
-  patch => solver%cast2solver (link%task)
+  patch => cast2solver (link%task)
   refine = -1
   !
   ! Extras refinement
@@ -391,7 +391,7 @@ SUBROUTINE check_current (self, tasklist, link, was_refined, was_derefined)
         return
   !---------------------------------------------------------------------------
   call trace%begin('refine_t%check_current', itimer=itimer)
-  patch => solver%cast2solver (link%task)
+  patch => cast2solver (link%task)
   id = patch%id
   if (verbose > 3) &
     write (io_unit%output,'(i6,2x,a,f12.6,2i4)') &
@@ -496,7 +496,7 @@ SUBROUTINE selective_refine (self, tasklist, patch, refine, was_refined, was_der
   allocate (refined(patch%gn(1),patch%gn(2),patch%gn(3)))
   refined = 0
   do while (associated(nbor))
-    nbpatch => solver%cast2solver(nbor%task)
+    nbpatch => nbpatch%cast2patch(nbor%task)
     if (patch%contains(nbpatch%position) .and. &
         patch%level == nbpatch%level-1) then
       l = patch%index_only (nbpatch%position + nbpatch%mesh%lf)
@@ -1507,5 +1507,19 @@ SUBROUTINE sanity_check (self, min, max, label, reverse)
     end if
   end if
 END SUBROUTINE sanity_check
+
+!===============================================================================
+!> Generic task to patch function
+!===============================================================================
+FUNCTION cast2solver (task) RESULT (solver)
+  class(task_t), pointer:: task
+  class(solver_t), pointer:: solver
+  select type (task)
+  class is (solver_t)
+  solver => task
+  class default
+  nullify (solver)
+  end select
+END FUNCTION cast2solver
 
 END MODULE refine_mod

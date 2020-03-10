@@ -86,6 +86,7 @@ MODULE extras_mod
     !real, dimension(:,:,:,:), pointer:: v                       ! tracep
   contains
     procedure, nopass:: cast2extras
+    procedure:: pre_init
     procedure:: init
     procedure:: dealloc
     procedure:: init_task_list
@@ -96,6 +97,16 @@ MODULE extras_mod
   end type
   type(extras_t), public:: extras
 CONTAINS
+
+!===============================================================================
+!> Initialize the modules that are to be included and used
+!===============================================================================
+SUBROUTINE pre_init (self)
+  class(extras_t), target:: self
+  !.............................................................................
+  call trace%begin ('extras_t%pre_init')
+  call trace%end
+END SUBROUTINE pre_init
 
 !===============================================================================
 !> Initialize the modules that are to be included and used
