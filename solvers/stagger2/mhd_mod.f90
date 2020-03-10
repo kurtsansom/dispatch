@@ -114,8 +114,8 @@ SUBROUTINE init (self)
   !-----------------------------------------------------------------------------
   ! Allocate memory and mesh, etc
   !-----------------------------------------------------------------------------
+  call self%patch_t%init
   call self%idx%init (5, self%mhd)
-  call self%gpatch_t%init
   self%type = 'mhd_t'
   do i=1,3
     self%mesh(i)%h(self%idx%px+i-1) = -0.5
@@ -126,8 +126,10 @@ SUBROUTINE init (self)
       print '("h:",8f5.2)', self%mesh(i)%h
     end do
   end if
+  call self%gpatch_t%init
   self%unsigned(self%idx%d)  = .true.
   self%pervolume(self%idx%s) = .true.
+  call self%extras_t%init
   !-----------------------------------------------------------------------------
   ! Self tests, only on one thread
   !-----------------------------------------------------------------------------

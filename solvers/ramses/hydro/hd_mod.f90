@@ -80,7 +80,7 @@ SUBROUTINE init (self)
   self%kind = 'ramses_hd_patch'
   if (self%nv == 0) self%nv = 5
   call self%idx%init (5, self%mhd)
-  call self%gpatch_t%init
+  call self%patch_t%init
   !$omp critical (input_cr)
   if (first_time) then
     first_time = .false.
@@ -106,6 +106,8 @@ SUBROUTINE init (self)
   self%pervolume(self%idx%px) = unsigned
   self%pervolume(self%idx%py) = unsigned
   self%pervolume(self%idx%pz) = unsigned
+  call self%gpatch_t%init
+  call self%extras_t%init
   call trace%end
 END SUBROUTINE init
 

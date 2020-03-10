@@ -1,16 +1,17 @@
 
 # Option groups
+#OPTS = full_debug
 #OPTS = debug
-OPTS = full_debug
-#OPTS = optimized
+#OPTS =
+OPTS = optimized
 
 # Default target and methods
 UPD             = adams_bashforth
 #SOLVER          = zeus3d
-SOLVER          = stagger2
-#SOLVER          = ramses/hydro
-#SOLVER          = ramses/mhd
 #SOLVER          = zeus3d/zeustw
+#SOLVER          = stagger2
+#SOLVER          = stagger2/e
+SOLVER          = ramses/mhd
 EXEC            = dispatch.x
 TOP             = ../..
 sinclude $(TOP)/config/Makefile

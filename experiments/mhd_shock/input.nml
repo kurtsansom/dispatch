@@ -2,12 +2,12 @@
 ! -- Run parameters ------------------------------------------------------------
 &io_params              verbose=0 do_output=t do_trace=f do_debug=f
                         method='legacy' guard_zones=t namelist_errors=t /
-&out_params             end_time=0.1001 out_time=0.01 print_time=0.0 /
+&out_params             end_time=0.1001 out_time=0.01 print_every=100 /
 &timer_params           /
 
 ! -- Experiment parameters -----------------------------------------------------
 &cartesian_params       size=1,0.010,0.010 dims=3,1,1 origin=0.0,0.0,0.0 /
-&patch_params           n=60,1,1 ng=3*3 nt=5 no_mans_land=f grace=0.01 /
+&patch_params           n=60,6,6 nt=5 no_mans_land=f grace=0.01 /
 &experiment_params      /
 &force_params           /
 &initial_params         /
