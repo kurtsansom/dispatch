@@ -81,7 +81,7 @@ SUBROUTINE init (self)
   self%nv = 8
   self%kind = 'ramses_mhd_patch'
   call self%idx%init (5, self%mhd)
-  call self%gpatch_t%init
+  call self%patch_t%init
   !-----------------------------------------------------------------------------
   ! Read solver-relevant parameters and store in the task instance
   !-----------------------------------------------------------------------------
@@ -115,6 +115,8 @@ SUBROUTINE init (self)
   self%pervolume(self%idx%px) = unsigned
   self%pervolume(self%idx%py) = unsigned
   self%pervolume(self%idx%pz) = unsigned
+  call self%gpatch_t%init
+  call self%extras_t%init
   call trace%end
 END SUBROUTINE init
 
@@ -911,7 +913,7 @@ SUBROUTINE trace3d(self)
   real(dp), dimension(1:self%gn(1),1:self%gn(2),1:self%gn(3)):: rho_t, p_t
   real(dp) :: eff_gamma, off
   integer, save:: itimer(4)=0
-  real, allocatable:: ff(:,:,:,:)
+  real:: ff(self%gn(1),3)
   !-----------------------------------------------------------------------------
   associate(q=>self%q,bf=>self%bf,dq=>self%dq,dq2=>self%dq2,qm=>self%qm,qp=>self%qp, &
     dbf=>self%dbf,qRT=>self%qRT,qRB=>self%qRB,qLT=>self%qLT,qLB=>self%qLB, &
@@ -936,12 +938,24 @@ SUBROUTINE trace3d(self)
   rho_t(:,:,:) = q(:,:,:,ir)
   p_t(:,:,:)   = q(:,:,:,ip)
 
+  ff = 0.0
+
   !
   !call trace%end (itimer(1))
   !call trace%begin ('mhd_t%trace3d(2)', itimer=itimer(2))
   eff_gamma = gamma
   do k=2,self%gn(3)-1
   do j=2,self%gn(2)-1
+  if (allocated(self%force_per_unit_mass)) then
+    ff(:,1) = self%force_per_unit_mass(:,j,k,1)
+    ff(:,2) = self%force_per_unit_mass(:,j,k,2)
+    ff(:,3) = self%force_per_unit_mass(:,j,k,3)
+  end if
+  if (allocated(self%force_per_unit_volume)) then
+    ff(:,1) = self%force_per_unit_mass(:,j,k,1)/q(:,j,k,ir)
+    ff(:,2) = self%force_per_unit_mass(:,j,k,2)/q(:,j,k,ir)
+    ff(:,3) = self%force_per_unit_mass(:,j,k,3)/q(:,j,k,ir)
+  end if
   !!dir! simd
   do i=2,self%gn(1)-1
 !    associate ( &
@@ -1047,11 +1061,9 @@ SUBROUTINE trace3d(self)
     sp0 = (-u*dpx-dux*eff_gamma*p)*dtdx + (-v*dpy-dvy*eff_gamma*p)*dtdy + (-w*dpz-dwz*eff_gamma*p)*dtdz
     !
     ! Add external force
-    associate (ff => self%force_per_unit_mass)
-    su0 = su0 + ff(i,j,k,1)*half*self%dtime
-    sv0 = sv0 + ff(i,j,k,2)*half*self%dtime
-    sw0 = sw0 + ff(i,j,k,3)*half*self%dtime
-    end associate
+    su0 = su0 + ff(i,1)*half*self%dtime
+    sv0 = sv0 + ff(i,2)*half*self%dtime
+    sw0 = sw0 + ff(i,3)*half*self%dtime
     !
     ! Evolve entropy instead of pressure
     !sS0 = (-u*dSx)*dtdx + (-v*dSy)*dtdy + (-w*dSz)*dtdz

@@ -3,7 +3,7 @@
 /
 
 &io_params
- verbose=1
+ verbose=0
  do_trace=f
  do_debug=f
  do_output=t
@@ -96,7 +96,7 @@
 
 &selfgravity_params
  selfgravity=t
- prediction=f order=1 verbose=2
+ prediction=f order=1 verbose=0
 /
 
 &poisson_params
@@ -105,7 +105,7 @@
  fourPiG=1.0
  max_iter=100
  precondition=t
- verbose=1
+ verbose=0
  solver='cg'
 /
 

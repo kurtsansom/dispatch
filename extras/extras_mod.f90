@@ -159,7 +159,7 @@ END SUBROUTINE dealloc
 !> force can be added separately, and to prevent these contributions to pile up.
 !===============================================================================
 SUBROUTINE pre_update (self)
-  class(extras_t):: self
+  class(extras_t), target:: self
   !.............................................................................
   !call self%forces%pre_update                                   ! forces
   !call self%trace_particles%update                              ! tracep

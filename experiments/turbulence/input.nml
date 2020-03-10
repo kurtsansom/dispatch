@@ -48,6 +48,9 @@
 &force_params               type='single_solenoidal' /
 &force_solenoidal_params    k=1,1,2 a0=10.0,10.2,10.1 t_turn=0.1000 /
 
+&turbulence_params          ampl_turb=2 t_turn=0.05 k1=1 k2=2 pk=0.0 seed=5 
+                            verbose=0 t_damp=3e-4 /
+
 &stagger_params             /
 &ramses_params              detailed_timer=f courant_factor=0.25 slope_type=2
                             isothermal=f gamma=1.4 smallr=1e-6 smallc=1e-2

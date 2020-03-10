@@ -9,18 +9,16 @@ MODULE initial_mod
   USE index_mod
   implicit none
   private
-
   type, public:: initial_t
-    logical:: mhd
+    logical:: mhd=.true.
   contains
     procedure:: init
     procedure:: condition
   end type
-
 CONTAINS
 
 !===============================================================================
-!> Setup a uniform initial state, with density=d0 and B=B0
+!> Stub -- not used
 !===============================================================================
 SUBROUTINE init (self, solver, gamma)
   class(initial_t):: self
@@ -28,6 +26,9 @@ SUBROUTINE init (self, solver, gamma)
   real, optional:: gamma
 END SUBROUTINE init
 
+!===============================================================================
+!> Stub -- not used
+!===============================================================================
 SUBROUTINE condition (self, m, ff, idx)
   class(initial_t):: self
   type(index_t):: idx
