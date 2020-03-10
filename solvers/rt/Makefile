@@ -1,5 +1,7 @@
 VPATH := $(VPATH):$(TOP)/solvers/rt
 
+RT_SOLVER ?= void
+
 sinclude $(TOP)/solvers/rt/$(RT_SOLVER)/Makefile
 
 rt_setup_mod.o      : rt_mod.o task_list_mod.o data_io_mod.o io_unit_mod.o omp_mod.o \
