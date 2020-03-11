@@ -107,8 +107,8 @@ SUBROUTINE update (self)
   m = shape(v)
   allocate (d2f(m(1),m(2),m(3)))
   !----------------------------------------------------------------------------
-  ! Evaluate the diffusion operator over the internal patch region (no need
-  ! to do it in the guard zones)
+  ! Evaluate a 6-point diffusion operator over the internal patch region
+  ! (no need to do it in the guard zones)
   !----------------------------------------------------------------------------
   do i3=self%mesh(3)%li,self%mesh(3)%ui
   do i2=self%mesh(2)%li,self%mesh(2)%ui
@@ -124,16 +124,16 @@ SUBROUTINE update (self)
   end do
   end do
   !----------------------------------------------------------------------------
-  ! Set the time step, update the temperature, and update cell update counter
+  ! Set the time step, update the temperature, and apply boundary condition
   !----------------------------------------------------------------------------
   self%dtime = self%courant
   v = v + self%dtime*d2f
+  call self%boundary_condition (self%new)
+  !----------------------------------------------------------------------------
+  ! Clean up and count operations
+  !----------------------------------------------------------------------------
   deallocate (d2f)
   call self%counter_update
-  !----------------------------------------------------------------------------
-  ! Finally, apply the boundary conditiom again
-  !----------------------------------------------------------------------------
-  call self%boundary_condition (self%new)
   call trace%end (itimer)
 END SUBROUTINE update
 

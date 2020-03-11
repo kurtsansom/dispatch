@@ -1,7 +1,7 @@
 ! $Id$
 
 &experiment_params
- initial_temperature=1.0        ! interior T
+ initial_temperature=2.0        ! interior T
  outside_temperature=1.0 /      ! exterior T
 
 &io_params
@@ -13,18 +13,17 @@
 &out_params
  end_time=1.01                  ! run until this time
  out_time=0.50                  ! output time interval
- print_every=500 /              ! task loggin cadence
+ print_every=500 /              ! task logging cadence
 
 &cartesian_params
  size=1,1,1                     ! box size
- dims=3*16                      ! patch arrangement
- mpi_dims=2,1,1                 !  1-2 MPI ranks
+ dims=3*8                       ! patch geometry (256x256x256 cells)
+ mpi_dims=2,1,1                 ! 1-2 MPI ranks
  omp_init=t /                   ! spread memory allocation
 
 &patch_params
  n=3*32                         ! patch dimensions
  nt=5                           ! number of time slices
- !nv=2                           ! number of variables (radii, temperature)
  grace=0.1 /                    ! extrapolate tolerance
 
 &download_params
