@@ -6,6 +6,7 @@ User Guide
    :maxdepth: 3
 
    setup
+   experiments/index
    compile
    run
    data

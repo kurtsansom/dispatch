@@ -13,7 +13,7 @@ DISPATCH Documentation
    :caption: Table of contents:
 
    overview
-   user_guide
+   ug/index
    technical
    doxygen
    google

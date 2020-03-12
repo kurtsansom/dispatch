@@ -13,8 +13,8 @@ or (better) setup a fork on Bitbucket (search for "Forking a repository"
 on `Bitbucket Support <https://support.atlassian.com/bitbucket-cloud/>`_), 
 and make pull requests from the fork.
 
-To get direct write access (mainly for core developers), setup an account
-on Bitbucket if you don't have one, and ask to be added to the access list.
+To get direct write access (mainly for core developers and collaborators), setup
+an account on Bitbucket if you don't have one, and ask to be added to the access list.
 Then use the URL ``git@bitbucked.org:aanordlund/dispatch`` to clone or fork.
 
 .. toctree::

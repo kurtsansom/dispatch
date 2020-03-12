@@ -12,14 +12,13 @@ conditions, or from boundary values taken from an adjacent ("up-stream") domain.
 Because one is looping over two redundant directions, it is possible to significantly
 reduce the cost, since it allows the compiler to use loop vectorization.
 
-The ``solvers/rt/short_characteristics/`` directory is currently empty, but this
-RT solver will soon be released, and the directory will then contain the following
+The ``solvers/rt/short_characteristics/`` directory contains the following
 modules, used to perform various parts of such solutions:::
 
-  radau_mod.f90                 ! Radau -- a modified Gauss -- integration
+  radau_mod.f90                 ! Radau integration -- a modified Gauss integration
   rt_integral_mod.f90           ! integral method solver
   rt_mod.f90                    ! RT data type definitions
-  rt_setup.f90                  ! RT setup
+  rt_nbors.f90                  ! RT neighbor setup
   rt_solver_mod.f90             ! RT solver data type
 
 
