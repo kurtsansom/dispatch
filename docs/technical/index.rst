@@ -14,18 +14,18 @@ Note 2: some of the technical discussion may not be up-to-date
 .. toctree::
    :maxdepth: 4
 
-   readthedocs
-   coding/index
    amr/index
+   coding/index
    compilation/index
+   readthedocs
    forces
    google
    git/index
+   hierarchy
    jobcontrol
    locking/index
    maintenance/index
    mpi/index
-   hierarchy
    python/index
    rt/index
    sink_particles/index

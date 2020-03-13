@@ -19,9 +19,9 @@ example the ``heat_diffusion`` demo requires only these commands:
 .. toctree::
    :maxdepth: 3
 
+   heat_diffusion
+   mhd_shock
    pan
-   turbulence
    stellar_atmospheres
    truelove
-   mhd_shock
-   heat_diffusion
+   turbulence

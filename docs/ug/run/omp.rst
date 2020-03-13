@@ -1,7 +1,7 @@
 OpenMP
 ------
 
-OpenMPI is fundamentatl in DISPATCH, so to take advantage of
+OpenMPI is fundamental in DISPATCH, so to take advantage of
 task parallelization on a single node, set the OMP_NUM_THREADS
 environemental variable before starting. For example:::
 
