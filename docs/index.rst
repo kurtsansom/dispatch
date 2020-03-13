@@ -12,7 +12,7 @@ DISPATCH Documentation
    :maxdepth: 2
    :caption: Table of contents:
 
-   overview
+   overview/index
    ug/index
    technical
    doxygen

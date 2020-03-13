@@ -1,3 +1,5 @@
+.. _compiling:
+
 Compiling
 =========
 
@@ -16,10 +18,11 @@ If the automatically selected make options shown are OK, just do:::
 
    make -j
 
-If the (gfortran) compiler chosen by default is not appropriate,
-do instead, for example:::
-
-   make COMPILER=ifort -j
+If MPI is not available, add ``MPI=`` to the make command, and if the
+(gfortran) compiler chosen by default is not appropriate add for example
+``COMPILER=ifort``).  The directory ``config/compiler/`` shows which
+compiler configurations are avaialable.
+See also the :ref:`environment` section.
 
 .. toctree::
    :maxdepth: 3

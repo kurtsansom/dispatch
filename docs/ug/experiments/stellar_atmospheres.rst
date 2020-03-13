@@ -1,7 +1,7 @@
-The ``stellar_atmospheres`` experiment
---------------------------------------
+Stellar atmospheres
+---------------------
 
-This experiment demonstrates how to setup models of stellar
+The ``stellar_atmospheres`` experiment demonstrates how to setup models of stellar
 atmospheres, using tabular equations of state, and including
 diffuse radiative transfer.
 

@@ -1,4 +1,4 @@
-Python ``dispatch`` module
+``dispatch`` module
 ==========================
 
 Try for example::
@@ -10,14 +10,14 @@ Try for example::
 
 To read the 1st snapshot from ``data/``, ``data/run``, and ``../data/run``, do::
 
-  s=dispatch.snapshot(1)
-  s=dispatch.snapshot(1,run='run')
-  s=dispatch.snapshot(1,'run',data='../data')
+  sn=dispatch.snapshot(1)
+  sn=dispatch.snapshot(1,run='run')
+  sn=dispatch.snapshot(1,'run',data='../data')
 
-The resulting ``s`` is an instance of the snapshot class.  To see what it
+The resulting ``sn`` is an instance of the snapshot class.  To see what it
 offers, do::
 
-  dir(s)
+  dir(sn)
 
 .. toctree::
    :maxdepth: 3

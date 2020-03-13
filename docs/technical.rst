@@ -1,3 +1,4 @@
+.. _technical:
 
 Technical Details
 =================
@@ -9,7 +10,7 @@ Technical Details
    amr/index
    compilation/index
    forces
-   git/index
+   ug/git/index
    jobcontrol
    maintenance/index
    mpi/index

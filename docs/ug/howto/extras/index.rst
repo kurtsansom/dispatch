@@ -1,5 +1,5 @@
-extras_mod.f90: optional features
-==================================
+extras_mod.f90 options
+------------------------
 
 The ``extras/`` directory, and the related ``extras_mod.f90`` template
 file provide optional extra features, which are only linked into the

@@ -9,5 +9,6 @@ User Guide
    experiments/index
    compile
    run
-   data
+   data/index
+   python/index
    howto/index

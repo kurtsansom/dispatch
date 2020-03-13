@@ -1,7 +1,7 @@
-The ``turbulence`` experiment
--------------------------------
+Turbulence
+------------
 
-This experiment demonstrates how to set up the driving in
+The ``turbulence/`` experiment demonstrates how to set up the driving in
 forced turbulence experiments, where the details of the driving
 may need to depend on the value of the SOLVER makefile macro.
 
@@ -11,7 +11,7 @@ to override the default choice of the ``force_mod.f90`` or
 ``forces_mod.f90`` by placing corresponding files in subdirectories
 under the ``experiments/turbulence/`` directory.
 
-THe specific driver in the case where ``SOLVER=ramses/hydro``, for
+The specific driver in the case where ``SOLVER=ramses/hydro``, for
 example, resides in ``experiments/turbulence/ramses/hydro/``.
 
 Alternative, as illustrated by the directory ``experiments/turbulence/stagger2e/``,

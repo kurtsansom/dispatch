@@ -1,4 +1,4 @@
-Python ``dispatch.yt`` module
+``dispatch.yt`` module
 =========================================
 
 ``dispatch.yt`` is an interface to the `YT Project <https://yt-project.org/>`_ Python package.
@@ -27,3 +27,7 @@ To make a slice plot, try::
   slc.show()
   slc.save('slice_plot.png')
 
+
+.. toctree::
+   :maxdepth: 4
+   

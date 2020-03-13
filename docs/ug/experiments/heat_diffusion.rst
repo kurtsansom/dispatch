@@ -1,7 +1,7 @@
-The ``heat_diffusion`` experiment
-----------------------------------
+Heat diffusion
+---------------
 
-This experiments demonstrates how to setup an experiment that refers
+The ``heat_diffusion/`` experiment demonstrates how to setup an experiment that refers
 to the very simple solver ``solvers/heat_diffusion/solver_mod.f90``,
 and by extension demonstrates how to add a solver (any solver) to the
 DISPATCH code framework.

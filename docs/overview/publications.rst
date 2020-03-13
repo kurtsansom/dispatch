@@ -1,5 +1,7 @@
 .. ADS format string: * %l, "%T" , %J %V, %p (%Y). %X\n
 
+.. _publications:
+
 Publications
 ------------
 
