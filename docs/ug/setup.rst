@@ -20,6 +20,6 @@ Then use the URL ``git@bitbucked.org:aanordlund/dispatch`` to clone or fork.
 .. toctree::
    :maxdepth: 3
 
-   /git/firewall
-   /git/bitbucket
+   /technical/git/firewall
+   /technical/git/bitbucket
    environment

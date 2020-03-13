@@ -1,5 +1,5 @@
 ``dispatch.yt`` module
-=========================================
+--------------------------
 
 ``dispatch.yt`` is an interface to the `YT Project <https://yt-project.org/>`_ Python package.
 

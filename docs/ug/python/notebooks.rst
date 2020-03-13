@@ -1,3 +1,4 @@
+.. _jupyter:
 
 Jupyter Notebooks
 =================

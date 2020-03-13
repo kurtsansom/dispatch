@@ -14,6 +14,5 @@ DISPATCH Documentation
 
    overview/index
    ug/index
-   technical
+   technical/index
    doxygen
-   google

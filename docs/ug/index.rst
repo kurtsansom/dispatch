@@ -7,8 +7,8 @@ User Guide
 
    setup
    experiments/index
-   compile
-   run
+   compile/index
+   run/index
    data/index
    python/index
    howto/index

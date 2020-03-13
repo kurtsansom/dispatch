@@ -10,4 +10,6 @@ simple examples of Python access are given below.
 
    structure
    simple
+   io/index
+   aux_data
 
