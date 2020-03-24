@@ -27,6 +27,9 @@ See also the :ref:`environment` section.
 .. toctree::
    :maxdepth: 3
 
+   command
+   cygwin
+   gui
    option_groups
    options
 

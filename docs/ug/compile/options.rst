@@ -11,3 +11,8 @@ Any other of the macro names shown by ``make info`` can also be replaced::
   make MPI=
 
 would compile without OpenMP and without MPI, respectively.
+
+.. toctree::
+   :maxdepth: 3
+
+
