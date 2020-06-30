@@ -1,3 +1,5 @@
+.. _jupyter:
+
 Heat Equation
 ------------------
 
