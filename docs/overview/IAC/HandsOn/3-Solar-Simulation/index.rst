@@ -8,6 +8,6 @@ Notebooks:
 .. toctree::
    :maxdepth: 4
 
-   0-Setup.ipynb
-   1-Run.ipynb
-   2-Access.ipynb
+   0-Setup
+   1-Run
+   2-Access

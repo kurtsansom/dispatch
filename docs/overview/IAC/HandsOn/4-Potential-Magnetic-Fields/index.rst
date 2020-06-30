@@ -8,4 +8,4 @@ Notebook
 .. toctree::
    :maxdepth: 4
 
-   PotentialBC.ipynb
+   PotentialBC
